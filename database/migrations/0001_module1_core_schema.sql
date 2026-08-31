@@ -1,0 +1,916 @@
+-- =====================================================================
+-- 0001_module1_core_schema.sql
+-- Anthrop HRMS — Module 1 core schema
+--
+-- Creates the ten Module 1 tables, row-level security for the four
+-- roles, and the database-level guarantees that the nine rules require.
+--
+-- Once this file has been run it is never edited. A change means a new
+-- numbered migration. (Rule 5.)
+-- =====================================================================
+
+begin;
+
+-- ---------------------------------------------------------------------
+-- 1. Schema for helper functions
+--
+-- Helpers live in `app`, not `public`, so PostgREST never exposes them
+-- as API endpoints. They are SECURITY DEFINER: they read `profiles` to
+-- answer "who is calling", and if they were subject to row-level
+-- security they would need to read `profiles` to decide whether they
+-- may read `profiles`, which recurses forever.
+-- ---------------------------------------------------------------------
+
+create schema if not exists app;
+revoke all on schema app from public;
+grant usage on schema app to authenticated;
+
+-- Normalised name tokens: case-folded, punctuation stripped, sorted,
+-- de-duplicated.
+--
+-- Defined here, before the tables, because people.name_tokens is a
+-- generated column and CREATE TABLE resolves the function immediately.
+--
+-- IMMUTABLE because a generated column requires it, which is also why
+-- the strings are joined with coalesce/|| rather than concat_ws() —
+-- concat_ws is only STABLE and would be rejected.
+create or replace function app.name_tokens(
+  p_first text, p_middle text, p_last text, p_preferred text
+) returns text[]
+language sql
+immutable
+parallel safe
+as $$
+  select coalesce(array_agg(distinct tok order by tok), '{}'::text[])
+  from (
+    select regexp_replace(lower(w), '[^a-z0-9]', '', 'g') as tok
+    from regexp_split_to_table(
+           coalesce(p_first, '')     || ' ' ||
+           coalesce(p_middle, '')    || ' ' ||
+           coalesce(p_last, '')      || ' ' ||
+           coalesce(p_preferred, ''), '\s+') as w
+  ) s
+  where tok <> '';
+$$;
+
+grant execute on function app.name_tokens(text, text, text, text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 2. Enumerated types
+-- ---------------------------------------------------------------------
+
+create type public.app_role as enum ('owner', 'hr', 'manager', 'staff');
+
+-- Deliberately minimal. Anthrop has not defined an employment lifecycle
+-- (probation, suspension, notice), and inventing one would be rule 4.
+create type public.employment_status as enum ('active', 'ended');
+
+-- How a timestamp on an attendance record came to exist. There is no
+-- 'device' value by design: rule 8 means the browser never supplies a
+-- time, so no timestamp can have come from one.
+create type public.attendance_source as enum ('self_service', 'hr_correction');
+
+-- 'download' is unused in this migration. It exists now because Task 10
+-- must log document downloads, a read that no row trigger can catch,
+-- and adding an enum value later is a migration of its own.
+create type public.audit_action as enum ('insert', 'update', 'delete', 'download');
+
+-- ---------------------------------------------------------------------
+-- 3. Tables
+--
+-- Every column that Anthrop may not have a value for is nullable. A
+-- missing value is null and is displayed as "Not stated". Nothing is
+-- defaulted to a plausible guess. (Rule 4.)
+--
+-- Every created_at / updated_at is set by this server. No column
+-- anywhere accepts a time supplied by a browser. (Rule 8.)
+-- ---------------------------------------------------------------------
+
+-- 3.1 tenants — the organisation.
+-- No tenant_id column: this table *is* the tenant. Its RLS restricts a
+-- user to the single row they belong to.
+create table public.tenants (
+  id           uuid primary key default gen_random_uuid(),
+  name         text not null,
+  legal_name   text,
+  address      text,
+  contact_email text,
+  contact_phone text,
+  is_active    boolean not null default true,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+comment on table public.tenants is
+  'One row per client organisation. Every other table is scoped to this.';
+
+-- 3.2 people — a human being.
+-- Separate from employments by design (decision D2): a person is a
+-- human, an employment is a job they hold. This is what lets a
+-- candidate become an employee in Module 2 without re-typing anything,
+-- and what lets a former employee be recognised if they reapply.
+create table public.people (
+  id             uuid primary key default gen_random_uuid(),
+  tenant_id      uuid not null references public.tenants (id) on delete restrict,
+
+  first_name     text not null,
+  middle_name    text,
+  last_name      text not null,
+  preferred_name text,
+
+  -- Normalised match tokens: case-folded, punctuation stripped, sorted,
+  -- de-duplicated. Generated by the database so they cannot drift out
+  -- of step with the names, whatever writes the row. Used for
+  -- returning-applicant matching in Module 2.
+  name_tokens    text[] generated always as (
+                   app.name_tokens(first_name, middle_name, last_name, preferred_name)
+                 ) stored,
+
+  email          text,
+  -- E.164. 08031234567 is normalised to +2348031234567 before it
+  -- reaches the database; this constraint is what makes that
+  -- non-optional, so the same person cannot become two records.
+  phone          text constraint people_phone_e164
+                   check (phone is null or phone ~ '^\+[1-9][0-9]{7,14}$'),
+
+  date_of_birth  date constraint people_dob_sane
+                   check (date_of_birth is null or date_of_birth < current_date),
+
+  address_line1  text,
+  address_line2  text,
+  city           text,
+  state          text,
+  country        text,
+
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+comment on table public.people is
+  'A human being. Never conflate with employments — see docs/decisions.md D2.';
+
+-- One email per person per organisation, case-insensitively, when given.
+create unique index people_tenant_email_uniq
+  on public.people (tenant_id, lower(email))
+  where email is not null;
+
+create index people_tenant_idx        on public.people (tenant_id);
+create index people_name_tokens_idx   on public.people using gin (name_tokens);
+
+-- 3.3 departments
+create table public.departments (
+  id             uuid primary key default gen_random_uuid(),
+  tenant_id      uuid not null references public.tenants (id) on delete restrict,
+  name           text not null,
+  head_person_id uuid references public.people (id) on delete set null,
+  is_active      boolean not null default true,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+create unique index departments_tenant_name_uniq
+  on public.departments (tenant_id, lower(name));
+create index departments_tenant_idx on public.departments (tenant_id);
+
+-- 3.4 job_titles
+create table public.job_titles (
+  id         uuid primary key default gen_random_uuid(),
+  tenant_id  uuid not null references public.tenants (id) on delete restrict,
+  title      text not null,
+  level      text,
+  is_active  boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index job_titles_tenant_title_uniq
+  on public.job_titles (tenant_id, lower(title));
+create index job_titles_tenant_idx on public.job_titles (tenant_id);
+
+-- 3.5 profiles — a login.
+-- id *is* the Supabase auth user id. person_id links the login to the
+-- human it belongs to, which is what makes "Staff sees only their own
+-- record" expressible at all.
+create table public.profiles (
+  id         uuid primary key references auth.users (id) on delete cascade,
+  tenant_id  uuid not null references public.tenants (id) on delete restrict,
+  person_id  uuid references public.people (id) on delete set null,
+  role       public.app_role not null default 'staff',
+  is_active  boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint profiles_person_unique unique (person_id)
+);
+
+create index profiles_tenant_idx on public.profiles (tenant_id);
+create index profiles_person_idx on public.profiles (person_id);
+
+comment on column public.profiles.role is
+  'Only an Owner may set or change this. Enforced by app.guard_role_assignment().';
+
+-- 3.6 employments — a job a person holds.
+create table public.employments (
+  id             uuid primary key default gen_random_uuid(),
+  tenant_id      uuid not null references public.tenants (id) on delete restrict,
+  person_id      uuid not null references public.people (id) on delete restrict,
+  job_title_id   uuid references public.job_titles (id) on delete set null,
+  department_id  uuid references public.departments (id) on delete set null,
+  -- The manager's employment, not their person: someone manages by
+  -- virtue of the post they hold, and vacating the post ends that.
+  manager_employment_id uuid references public.employments (id) on delete set null,
+
+  start_date     date,
+  end_date       date,
+  status         public.employment_status not null default 'active',
+
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now(),
+
+  constraint employments_dates_ordered
+    check (start_date is null or end_date is null or end_date >= start_date),
+  constraint employments_not_own_manager
+    check (manager_employment_id is null or manager_employment_id <> id)
+);
+
+create index employments_tenant_idx     on public.employments (tenant_id);
+create index employments_person_idx     on public.employments (person_id);
+create index employments_department_idx on public.employments (department_id);
+
+-- 3.7 documents — metadata only. The file itself lives in Supabase
+-- Storage. storage_path holds a randomised object key, never a public
+-- URL; downloads go through an expiring signed link (Task 10).
+create table public.documents (
+  id                uuid primary key default gen_random_uuid(),
+  tenant_id         uuid not null references public.tenants (id) on delete restrict,
+  person_id         uuid not null references public.people (id) on delete cascade,
+
+  storage_path      text not null unique,
+  original_filename text not null,
+  mime_type         text,
+  size_bytes        bigint check (size_bytes is null or size_bytes >= 0),
+  document_type     text,
+
+  uploaded_by       uuid references auth.users (id) on delete set null,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+
+create index documents_tenant_idx on public.documents (tenant_id);
+create index documents_person_idx on public.documents (person_id);
+
+-- 3.8 emergency_contacts
+create table public.emergency_contacts (
+  id           uuid primary key default gen_random_uuid(),
+  tenant_id    uuid not null references public.tenants (id) on delete restrict,
+  person_id    uuid not null references public.people (id) on delete cascade,
+  name         text not null,
+  relationship text,
+  phone        text constraint emergency_contacts_phone_e164
+                 check (phone is null or phone ~ '^\+[1-9][0-9]{7,14}$'),
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+create index emergency_contacts_tenant_idx on public.emergency_contacts (tenant_id);
+create index emergency_contacts_person_idx on public.emergency_contacts (person_id);
+
+-- 3.9 attendance_records — one row per clock-in/clock-out pair.
+--
+-- The correction columns are the point of this table's design: when HR
+-- changes a time, the original is not overwritten. It is copied aside
+-- and stays visible beside the correction, together with who changed
+-- it, when, and why.
+create table public.attendance_records (
+  id                    uuid primary key default gen_random_uuid(),
+  tenant_id             uuid not null references public.tenants (id) on delete restrict,
+  employment_id         uuid not null references public.employments (id) on delete restrict,
+
+  clock_in_at           timestamptz not null default now(),
+  clock_in_source       public.attendance_source not null default 'self_service',
+  clock_out_at          timestamptz,
+  clock_out_source      public.attendance_source,
+
+  -- Correction trail. All five are written by the database, never by
+  -- the client.
+  corrected_by          uuid references auth.users (id) on delete set null,
+  corrected_at          timestamptz,
+  correction_reason     text,
+  original_clock_in_at  timestamptz,
+  original_clock_out_at timestamptz,
+
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now(),
+
+  constraint attendance_out_after_in
+    check (clock_out_at is null or clock_out_at >= clock_in_at),
+  constraint attendance_out_source_present
+    check ((clock_out_at is null) = (clock_out_source is null)),
+  constraint attendance_correction_needs_reason
+    check (corrected_at is null
+           or (correction_reason is not null and btrim(correction_reason) <> ''))
+);
+
+create index attendance_tenant_idx     on public.attendance_records (tenant_id);
+create index attendance_employment_idx on public.attendance_records (employment_id, clock_in_at desc);
+
+-- A person cannot be clocked in twice. This is what makes "who is in
+-- today" a truthful question.
+create unique index attendance_one_open_per_employment
+  on public.attendance_records (employment_id)
+  where clock_out_at is null;
+
+-- 3.10 audit_log — append only.
+--
+-- actor_user_id deliberately carries no foreign key. An audit record is
+-- a historical fact; deleting a user must not rewrite or cascade into
+-- the history of what that user did.
+create table public.audit_log (
+  id            bigint generated always as identity primary key,
+  tenant_id     uuid,
+  actor_user_id uuid,
+  action        public.audit_action not null,
+  table_name    text not null,
+  record_id     uuid,
+  before        jsonb,
+  after         jsonb,
+  occurred_at   timestamptz not null default now()
+);
+
+create index audit_log_tenant_time_idx on public.audit_log (tenant_id, occurred_at desc);
+create index audit_log_actor_idx       on public.audit_log (actor_user_id, occurred_at desc);
+create index audit_log_record_idx      on public.audit_log (table_name, record_id);
+
+-- ---------------------------------------------------------------------
+-- 4. Helper functions
+-- ---------------------------------------------------------------------
+
+-- app.name_tokens() is defined in section 1, above the tables.
+
+-- Who is calling. Each returns null for an unauthenticated request,
+-- which makes every policy below evaluate to false rather than true.
+create or replace function app.current_tenant_id() returns uuid
+language sql stable security definer set search_path = public, pg_temp as $$
+  select p.tenant_id from public.profiles p
+  where p.id = auth.uid() and p.is_active;
+$$;
+
+create or replace function app.current_app_role() returns public.app_role
+language sql stable security definer set search_path = public, pg_temp as $$
+  select p.role from public.profiles p
+  where p.id = auth.uid() and p.is_active;
+$$;
+
+create or replace function app.current_person_id() returns uuid
+language sql stable security definer set search_path = public, pg_temp as $$
+  select p.person_id from public.profiles p
+  where p.id = auth.uid() and p.is_active;
+$$;
+
+-- The departments a Manager may see: the department of their own active
+-- employment, plus any department they are recorded as the head of.
+create or replace function app.managed_department_ids() returns uuid[]
+language sql stable security definer set search_path = public, pg_temp as $$
+  select coalesce(array_agg(distinct d), '{}'::uuid[])
+  from (
+    select e.department_id as d
+    from public.employments e
+    join public.profiles pr
+      on pr.person_id = e.person_id and pr.tenant_id = e.tenant_id
+    where pr.id = auth.uid()
+      and pr.is_active
+      and e.status = 'active'
+      and e.department_id is not null
+
+    union
+
+    select dep.id
+    from public.departments dep
+    join public.profiles pr2 on pr2.tenant_id = dep.tenant_id
+    where pr2.id = auth.uid()
+      and pr2.is_active
+      and pr2.person_id is not null
+      and dep.head_person_id = pr2.person_id
+  ) s;
+$$;
+
+revoke all on function
+  app.current_tenant_id(), app.current_app_role(),
+  app.current_person_id(), app.managed_department_ids()
+  from public;
+grant execute on function
+  app.current_tenant_id(), app.current_app_role(),
+  app.current_person_id(), app.managed_department_ids()
+  to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 5. Server-set timestamps (rule 8)
+-- ---------------------------------------------------------------------
+
+create or replace function app.set_updated_at() returns trigger
+language plpgsql set search_path = public, pg_temp as $$
+begin
+  new.updated_at := now();
+  if tg_op = 'UPDATE' then
+    new.created_at := old.created_at;   -- created_at is never rewritten
+  end if;
+  return new;
+end;
+$$;
+
+-- ---------------------------------------------------------------------
+-- 6. Only an Owner may assign a role
+--
+-- Row-level security cannot express "you may update this row but not
+-- that column", so the column-level rule is a trigger.
+-- ---------------------------------------------------------------------
+
+create or replace function app.guard_role_assignment() returns trigger
+language plpgsql security definer set search_path = public, app, pg_temp as $$
+declare
+  v_role public.app_role := app.current_app_role();
+begin
+  -- v_role is null when no profile exists yet: the very first Owner,
+  -- created by the human in the SQL editor. Nothing to guard there.
+  if v_role is null then
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE' and new.role is distinct from old.role and v_role <> 'owner' then
+    raise exception 'Only an Owner may change a role.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  if tg_op = 'INSERT' and new.role <> 'staff' and v_role <> 'owner' then
+    raise exception 'Only an Owner may create an account with a role above Staff.'
+      using errcode = 'insufficient_privilege';
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger profiles_guard_role
+  before insert or update on public.profiles
+  for each row execute function app.guard_role_assignment();
+
+-- ---------------------------------------------------------------------
+-- 7. Attendance: the database sets the time, not the browser
+--
+-- A device clock can be changed in seconds, so no clock-in or clock-out
+-- time supplied by a client is ever trusted. Whatever the browser
+-- sends in these columns is discarded and replaced with now(), except
+-- on a deliberate HR correction — which is required to carry a reason
+-- and which preserves the original value.
+-- ---------------------------------------------------------------------
+
+create or replace function app.attendance_enforce_server_time() returns trigger
+language plpgsql security definer set search_path = public, app, pg_temp as $$
+declare
+  v_role public.app_role := app.current_app_role();
+  v_may_correct     boolean := coalesce(v_role in ('owner', 'hr'), false);
+  v_touches_times   boolean;
+  v_plain_clock_out boolean;
+begin
+  if tg_op = 'INSERT' then
+    -- A clock-in is always stamped here, now, whatever was sent.
+    new.clock_in_at      := now();
+    new.clock_in_source  := 'self_service';
+    new.clock_out_at     := null;
+    new.clock_out_source := null;
+    new.corrected_by     := null;
+    new.corrected_at     := null;
+    new.correction_reason := null;
+    new.original_clock_in_at  := null;
+    new.original_clock_out_at := null;
+    return new;
+  end if;
+
+  v_touches_times :=  new.clock_in_at  is distinct from old.clock_in_at
+                   or new.clock_out_at is distinct from old.clock_out_at;
+
+  -- Closing an open record with no reason attached is an ordinary
+  -- clock-out, whoever is doing it. HR clocking themselves out at the
+  -- end of the day is not a correction.
+  v_plain_clock_out :=  old.clock_out_at is null
+                    and new.clock_out_at is not null
+                    and new.clock_in_at is not distinct from old.clock_in_at
+                    and new.correction_reason is not distinct from old.correction_reason;
+
+  if v_may_correct and v_touches_times and not v_plain_clock_out then
+    -- A deliberate change to a stored time. This is the only path that
+    -- may write a time this server did not generate, and it is barred
+    -- without a reason.
+    if new.correction_reason is null or btrim(new.correction_reason) = '' then
+      raise exception 'A correction to an attendance record requires a reason.'
+        using errcode = 'check_violation';
+    end if;
+
+    -- Snapshot the record as it stood before the first correction. A
+    -- second correction does not erase what it said originally.
+    new.original_clock_in_at  := coalesce(old.original_clock_in_at,  old.clock_in_at);
+    new.original_clock_out_at := coalesce(old.original_clock_out_at, old.clock_out_at);
+    new.corrected_by := auth.uid();
+    new.corrected_at := now();
+
+    if new.clock_in_at is distinct from old.clock_in_at then
+      new.clock_in_source := 'hr_correction';
+    end if;
+    if new.clock_out_at is distinct from old.clock_out_at then
+      new.clock_out_source := 'hr_correction';
+    end if;
+    -- Withdrawing a clock-out entirely: keep the paired-nulls
+    -- constraint true whatever the client sent.
+    if new.clock_out_at is null then
+      new.clock_out_source := null;
+    end if;
+
+  else
+    -- Not a correction. Every stored time is put back to what the
+    -- database already had, so a tampered clock_in_at sent by a browser
+    -- is discarded rather than rejected — the clock-out screen is the
+    -- one the whole team uses every morning and it must not fail. The
+    -- only change that survives is closing an open record, and that
+    -- time comes from this server.
+    new.clock_in_at           := old.clock_in_at;
+    new.clock_in_source       := old.clock_in_source;
+    new.corrected_by          := old.corrected_by;
+    new.corrected_at          := old.corrected_at;
+    new.correction_reason     := old.correction_reason;
+    new.original_clock_in_at  := old.original_clock_in_at;
+    new.original_clock_out_at := old.original_clock_out_at;
+
+    if old.clock_out_at is null and new.clock_out_at is not null then
+      new.clock_out_at     := now();
+      new.clock_out_source := 'self_service';
+    else
+      new.clock_out_at     := old.clock_out_at;
+      new.clock_out_source := old.clock_out_source;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+create trigger attendance_server_time
+  before insert or update on public.attendance_records
+  for each row execute function app.attendance_enforce_server_time();
+
+-- ---------------------------------------------------------------------
+-- 8. The audit log writes itself (rule 3)
+--
+-- Put in the database rather than the frontend on purpose: a screen can
+-- forget to log, a trigger cannot. SECURITY DEFINER so it can write to
+-- a table that nobody holds an insert grant on.
+-- ---------------------------------------------------------------------
+
+create or replace function app.audit_row() returns trigger
+language plpgsql security definer set search_path = public, app, pg_temp as $$
+declare
+  v_before jsonb;
+  v_after  jsonb;
+  v_row    jsonb;
+  v_action public.audit_action;
+  v_record uuid;
+  v_tenant uuid;
+begin
+  if tg_op = 'INSERT' then
+    v_action := 'insert'; v_before := null;             v_after := to_jsonb(new);
+  elsif tg_op = 'UPDATE' then
+    v_action := 'update'; v_before := to_jsonb(old);     v_after := to_jsonb(new);
+  else
+    v_action := 'delete'; v_before := to_jsonb(old);     v_after := null;
+  end if;
+
+  v_row    := coalesce(v_after, v_before);
+  v_record := nullif(v_row ->> 'id', '')::uuid;
+  v_tenant := nullif(v_row ->> 'tenant_id', '')::uuid;
+
+  -- tenants has no tenant_id column; it is its own tenant.
+  if v_tenant is null and tg_table_name = 'tenants' then
+    v_tenant := v_record;
+  end if;
+
+  insert into public.audit_log
+    (tenant_id, actor_user_id, action, table_name, record_id, before, after)
+  values
+    (v_tenant, auth.uid(), v_action, tg_table_name, v_record, v_before, v_after);
+
+  return null;  -- AFTER trigger; return value is ignored
+end;
+$$;
+
+create trigger audit_tenants            after insert or update or delete on public.tenants            for each row execute function app.audit_row();
+create trigger audit_people             after insert or update or delete on public.people             for each row execute function app.audit_row();
+create trigger audit_departments        after insert or update or delete on public.departments        for each row execute function app.audit_row();
+create trigger audit_job_titles         after insert or update or delete on public.job_titles         for each row execute function app.audit_row();
+create trigger audit_profiles           after insert or update or delete on public.profiles           for each row execute function app.audit_row();
+create trigger audit_employments        after insert or update or delete on public.employments        for each row execute function app.audit_row();
+create trigger audit_documents          after insert or update or delete on public.documents          for each row execute function app.audit_row();
+create trigger audit_emergency_contacts after insert or update or delete on public.emergency_contacts for each row execute function app.audit_row();
+create trigger audit_attendance_records after insert or update or delete on public.attendance_records for each row execute function app.audit_row();
+
+-- updated_at on every table that has one
+create trigger tenants_touch            before insert or update on public.tenants            for each row execute function app.set_updated_at();
+create trigger people_touch             before insert or update on public.people             for each row execute function app.set_updated_at();
+create trigger departments_touch        before insert or update on public.departments        for each row execute function app.set_updated_at();
+create trigger job_titles_touch         before insert or update on public.job_titles         for each row execute function app.set_updated_at();
+create trigger profiles_touch           before insert or update on public.profiles           for each row execute function app.set_updated_at();
+create trigger employments_touch        before insert or update on public.employments        for each row execute function app.set_updated_at();
+create trigger documents_touch          before insert or update on public.documents          for each row execute function app.set_updated_at();
+create trigger emergency_contacts_touch before insert or update on public.emergency_contacts for each row execute function app.set_updated_at();
+create trigger attendance_touch         before insert or update on public.attendance_records for each row execute function app.set_updated_at();
+
+-- ---------------------------------------------------------------------
+-- 9. Row-level security (rules 1 and 2)
+--
+-- Enabled on every table. Policies are OR'd, so each role gets its own
+-- named policy and the name says who it is for. Every single policy
+-- restates the tenant condition — tenant isolation is never inherited
+-- from another policy or assumed from a join.
+--
+-- app.current_tenant_id() is wrapped in a scalar sub-select so Postgres
+-- evaluates it once per statement rather than once per row.
+-- ---------------------------------------------------------------------
+
+alter table public.tenants            enable row level security;
+alter table public.people             enable row level security;
+alter table public.departments        enable row level security;
+alter table public.job_titles         enable row level security;
+alter table public.profiles           enable row level security;
+alter table public.employments        enable row level security;
+alter table public.documents          enable row level security;
+alter table public.emergency_contacts enable row level security;
+alter table public.attendance_records enable row level security;
+alter table public.audit_log          enable row level security;
+
+-- 9.1 tenants -----------------------------------------------------------
+-- Everyone sees their own organisation and no other. Only an Owner may
+-- change it. Nobody creates or deletes one through the API — that is
+-- done by the human in the SQL editor.
+
+create policy tenants_select_own on public.tenants
+  for select to authenticated
+  using (id = (select app.current_tenant_id()));
+
+create policy tenants_update_owner on public.tenants
+  for update to authenticated
+  using      (id = (select app.current_tenant_id()) and (select app.current_app_role()) = 'owner')
+  with check (id = (select app.current_tenant_id()) and (select app.current_app_role()) = 'owner');
+
+-- 9.2 people ------------------------------------------------------------
+
+create policy people_select_owner_hr on public.people
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) in ('owner', 'hr'));
+
+create policy people_select_manager on public.people
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) = 'manager'
+         and (
+           id = (select app.current_person_id())        -- a manager is also a person
+           or exists (
+             select 1 from public.employments e
+             where e.person_id = people.id
+               and e.tenant_id = people.tenant_id
+               and e.department_id = any ((select app.managed_department_ids()))
+           )
+         ));
+
+create policy people_select_staff on public.people
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) = 'staff'
+         and id = (select app.current_person_id()));
+
+create policy people_write_owner_hr on public.people
+  for all to authenticated
+  using      (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'))
+  with check (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'));
+
+-- 9.3 departments and job_titles ---------------------------------------
+-- Readable by everyone in the organisation: a job title is not personal
+-- data, and a Staff profile screen has to be able to name a department.
+-- Writable by Owner and HR only.
+
+create policy departments_select_tenant on public.departments
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id()));
+
+create policy departments_write_owner_hr on public.departments
+  for all to authenticated
+  using      (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'))
+  with check (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'));
+
+create policy job_titles_select_tenant on public.job_titles
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id()));
+
+create policy job_titles_write_owner_hr on public.job_titles
+  for all to authenticated
+  using      (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'))
+  with check (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'));
+
+-- 9.4 profiles ----------------------------------------------------------
+-- Everyone can read their own login row — the app needs it to know who
+-- it is talking to. Owner and HR read all of them. Owner and HR may
+-- write them, but the role column itself is guarded separately by
+-- app.guard_role_assignment(), which only an Owner passes.
+
+-- The one policy in this file with no tenant_id clause, deliberately.
+-- The primary key of this table *is* the caller's auth user id, so the
+-- condition can match exactly one row — their own — and that row
+-- carries the tenant. Adding a tenant test here would also lock a
+-- deactivated user out of reading the row that says they are
+-- deactivated, because app.current_tenant_id() returns null for them.
+create policy profiles_select_self on public.profiles
+  for select to authenticated
+  using (id = auth.uid());
+
+create policy profiles_select_owner_hr on public.profiles
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) in ('owner', 'hr'));
+
+create policy profiles_write_owner_hr on public.profiles
+  for all to authenticated
+  using      (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'))
+  with check (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'));
+
+-- 9.5 employments -------------------------------------------------------
+
+create policy employments_select_owner_hr on public.employments
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) in ('owner', 'hr'));
+
+create policy employments_select_manager on public.employments
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) = 'manager'
+         and (person_id = (select app.current_person_id())
+              or department_id = any ((select app.managed_department_ids()))));
+
+create policy employments_select_staff on public.employments
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) = 'staff'
+         and person_id = (select app.current_person_id()));
+
+create policy employments_write_owner_hr on public.employments
+  for all to authenticated
+  using      (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'))
+  with check (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'));
+
+-- 9.6 documents ---------------------------------------------------------
+-- Personnel files. A Manager is deliberately NOT given sight of these:
+-- a department head does not automatically need an employee's passport
+-- scan. See the question raised at Gate 2.
+
+create policy documents_select_owner_hr on public.documents
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) in ('owner', 'hr'));
+
+create policy documents_select_staff_own on public.documents
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and person_id = (select app.current_person_id()));
+
+create policy documents_write_owner_hr on public.documents
+  for all to authenticated
+  using      (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'))
+  with check (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'));
+
+-- 9.7 emergency_contacts -------------------------------------------------
+
+create policy emergency_contacts_select_owner_hr on public.emergency_contacts
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) in ('owner', 'hr'));
+
+create policy emergency_contacts_select_staff_own on public.emergency_contacts
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and person_id = (select app.current_person_id()));
+
+create policy emergency_contacts_write_owner_hr on public.emergency_contacts
+  for all to authenticated
+  using      (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'))
+  with check (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'));
+
+-- 9.8 attendance_records -------------------------------------------------
+
+create policy attendance_select_owner_hr on public.attendance_records
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) in ('owner', 'hr'));
+
+create policy attendance_select_manager on public.attendance_records
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) = 'manager'
+         and exists (
+           select 1 from public.employments e
+           where e.id = attendance_records.employment_id
+             and e.tenant_id = attendance_records.tenant_id
+             and (e.person_id = (select app.current_person_id())
+                  or e.department_id = any ((select app.managed_department_ids())))
+         ));
+
+create policy attendance_select_own on public.attendance_records
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and exists (
+           select 1 from public.employments e
+           where e.id = attendance_records.employment_id
+             and e.tenant_id = attendance_records.tenant_id
+             and e.person_id = (select app.current_person_id())
+         ));
+
+-- Anyone may clock themselves in and out, and only themselves. The
+-- times they send are discarded by the trigger above; this policy only
+-- decides whose row it is.
+create policy attendance_insert_own on public.attendance_records
+  for insert to authenticated
+  with check (tenant_id = (select app.current_tenant_id())
+              and exists (
+                select 1 from public.employments e
+                where e.id = attendance_records.employment_id
+                  and e.tenant_id = attendance_records.tenant_id
+                  and e.person_id = (select app.current_person_id())
+                  and e.status = 'active'
+              ));
+
+create policy attendance_update_own on public.attendance_records
+  for update to authenticated
+  using      (tenant_id = (select app.current_tenant_id())
+              and exists (
+                select 1 from public.employments e
+                where e.id = attendance_records.employment_id
+                  and e.tenant_id = attendance_records.tenant_id
+                  and e.person_id = (select app.current_person_id())
+              ))
+  with check (tenant_id = (select app.current_tenant_id()));
+
+create policy attendance_write_owner_hr on public.attendance_records
+  for all to authenticated
+  using      (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'))
+  with check (tenant_id = (select app.current_tenant_id())
+              and (select app.current_app_role()) in ('owner', 'hr'));
+
+-- 9.9 audit_log ----------------------------------------------------------
+-- Owner only, read only. There is no insert, update or delete policy
+-- for anybody, and no write grant is issued below: the only thing that
+-- writes here is the SECURITY DEFINER trigger. HR is excluded by
+-- having no policy that matches them.
+
+create policy audit_log_select_owner on public.audit_log
+  for select to authenticated
+  using (tenant_id = (select app.current_tenant_id())
+         and (select app.current_app_role()) = 'owner');
+
+-- ---------------------------------------------------------------------
+-- 10. Grants
+--
+-- Row-level security decides which rows. Grants decide whether the role
+-- may reach the table at all. `anon` is the unauthenticated visitor on
+-- the public landing page and has no business in any of these tables.
+-- ---------------------------------------------------------------------
+
+-- Named one by one rather than "all tables in schema public", so this
+-- can never reach past the tables this migration created.
+revoke all on
+  public.tenants, public.people, public.departments, public.job_titles,
+  public.profiles, public.employments, public.documents,
+  public.emergency_contacts, public.attendance_records, public.audit_log
+  from anon;
+
+grant select, insert, update, delete on
+  public.tenants, public.people, public.departments, public.job_titles,
+  public.profiles, public.employments, public.documents,
+  public.emergency_contacts, public.attendance_records
+  to authenticated;
+
+-- Read only, and even that is narrowed to Owner by the policy above.
+grant select on public.audit_log to authenticated;
+
+commit;
