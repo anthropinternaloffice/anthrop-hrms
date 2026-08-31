@@ -4,8 +4,10 @@ HR management system for **Anthrop Management Limited**, an HR consulting firm i
 Nigeria. Their clients are corporate organisations, government institutions, and legislative
 bodies — an institutional audience.
 
-The build brief for the current module is `MODULE-1-BUILD-BRIEF-1.pdf` in the repository
-root. It is the instruction set. Read it before working.
+The build brief for the current module is `MODULE-1-BUILD-BRIEF-1.pdf`. It is the
+instruction set — read it before working. It sits in the working directory but is
+deliberately **not** committed (`*.pdf` is gitignored); ask the human for it if it is not
+on disk. `docs/modules/01-hr-core.md` carries the parts that must survive without it.
 
 ## Stack
 
