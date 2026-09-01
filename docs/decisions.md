@@ -126,3 +126,63 @@ correction with a reason. It does **not** build schedules, lateness rules, grace
 overtime, absence rules, or location checking. Every one of those is a policy decision
 Anthrop has not yet made; building the rules before the answers exist means building them
 twice.
+
+---
+
+## D5 — Routing is react-router-dom
+
+**Date:** 2026-09-01
+**Status:** Fixed. Approved by the human before Task 5 was written.
+
+The brief requires a route guard and placeholder pages behind each sidebar item, but
+names no router. `react-router-dom` was proposed and approved: it is the standard for
+React, it is stable, whoever maintains this after us will already know it, and it works
+with Vite and with Cloudflare Pages' SPA hosting.
+
+Cloudflare serves a single-page app, so `frontend/public/_redirects` sends every address
+to `index.html` and lets the router decide. Without that file a refresh on
+`/app/employees` returns a 404 from the CDN rather than the page.
+
+---
+
+## D6 — One appearance, no dark mode
+
+**Date:** 2026-09-01
+**Status:** Fixed at Task 5.
+
+D3 measured contrast for one palette and approved one palette. A dark theme would be a
+second set of colours nobody extracted from the client's site and nobody checked against
+WCAG, maintained forever alongside the first. `frontend/src/theme.css` therefore defines
+light values only, and shadcn/ui's `dark:` variants never activate.
+
+---
+
+## D7 — Two theme tokens exist that D3 did not name
+
+**Date:** 2026-09-01
+**Status:** Fixed at Task 5.
+
+Both fall directly out of the contrast measurements already recorded in D3, and neither
+is a new brand colour.
+
+| Token | Hex | Why it exists |
+|---|---|---|
+| `control` | `#7C838B` | D3 constraint 1: `line` `#D3D5D6` is 1.47:1 and too faint for the border of an interactive control, which WCAG 1.4.11 requires to be 3:1. This is 3.84:1 and is used on inputs, selects and checkboxes. |
+| `quiet` | `#6B7280` | D3 constraint 2 verbatim — the floor for muted text, including the "Not stated" placeholder that rule 4 requires. 4.83:1, AA. |
+
+`quiet` is deliberately not called `muted`: Tailwind turns `--color-muted` into the
+`bg-muted` fill utility, and pointing a fill at a 4.83:1 text grey would paint dark blocks
+the first time anyone used that class.
+
+---
+
+## D8 — Enter and exit animations are written, not installed
+
+**Date:** 2026-09-01
+**Status:** Fixed at Task 5.
+
+shadcn/ui's Sheet — the sidebar drawer on a phone — is written against `animate-in`,
+`fade-in-0` and `slide-in-from-left`, which come from the `tw-animate-css` plugin. The
+brief says to ask before installing a library it does not name. The classes are about
+forty lines of CSS, so they are defined at the bottom of `frontend/src/theme.css` instead
+of adding a dependency. They honour `prefers-reduced-motion`.

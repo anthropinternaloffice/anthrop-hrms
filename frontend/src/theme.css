@@ -1,0 +1,263 @@
+/* =====================================================================
+   theme.css — the single source of truth for Anthrop HRMS design tokens.
+
+   Every screen reads from this file. Nothing hard-codes a hex value.
+
+   The palette is FIXED. It was extracted from the client's live site and
+   approved at Gate 1; it is recorded in docs/decisions.md as D3 and is
+   not decided again. If a colour is needed that is not here, that is a
+   conversation with the client, not a new hex code in a component.
+   ===================================================================== */
+
+@import 'tailwindcss';
+
+@theme {
+  /* -------------------------------------------------------------------
+     THE SIX BRAND COLOURS  (docs/decisions.md D3)
+     Sourced from the :root block of anthropmanagement.com's stylesheet.
+     ------------------------------------------------------------------- */
+  --color-brand: #000066;   /* --primary-color   buttons, active nav, links */
+  --color-ink: #0a1119;     /* --secondary-color headings, table headers    */
+  --color-body: #4b535d;    /* --third-color     body copy, labels          */
+  --color-page: #f5f5f5;    /* --body_bg-color   page background            */
+  --color-surface: #ffffff; /*                   cards, table rows, sidebar */
+  --color-line: #d3d5d6;    /*                   hairlines, card edges      */
+
+  /* -------------------------------------------------------------------
+     THE TWO STATE COLOURS  (D3)
+     Proposed, not found on the site, approved at Gate 1. They signal
+     state and nothing else: never decorative, never in place of brand.
+     ------------------------------------------------------------------- */
+  --color-positive: #1b6e4a; /* clocked in, active employment, success */
+  --color-negative: #9b2c2c; /* destructive actions, errors, failed sign-in */
+
+  /* -------------------------------------------------------------------
+     TWO TOKENS THE D3 CONTRAST MEASUREMENTS FORCE
+     ------------------------------------------------------------------- */
+
+  /* D3 constraint 1: --color-line is 1.47:1 on white. Fine for a table
+     hairline, too faint for the border of a control — WCAG 1.4.11 wants
+     3:1. Inputs, selects and checkboxes use this instead. 3.84:1. */
+  --color-control: #7c838b;
+
+  /* D3 constraint 2: muted text — including the "Not stated" placeholder
+     that rule 4 requires — may be no lighter than this. 4.83:1, AA.
+     Named `quiet`, not `muted`: Tailwind turns `--color-muted` into the
+     `bg-muted` fill utility, and a 4.83:1 grey is a text colour, not a
+     background. The mapping below keeps the two apart. */
+  --color-quiet: #6b7280;
+
+  /* Quiet fills for hover, striping and disabled surfaces. Neutral greys
+     off the page colour, carrying no meaning. */
+  --color-wash: #f0f1f2;
+  --color-wash-strong: #e6e8e9;
+
+  /* -------------------------------------------------------------------
+     TYPEFACE  (D3)
+     Public Sans — the site's own body font. Also the US Web Design
+     System's face: built for government forms and dense tables, has
+     tabular figures so time columns align, holds up small on a phone.
+     Loaded in index.html. Weights 400, 500, 600 only.
+     ------------------------------------------------------------------- */
+  --font-sans: 'Public Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* -------------------------------------------------------------------
+     SPACING
+     Tailwind's 4px base, plus three named steps so "generous spacing"
+     means the same number on every screen instead of a fresh guess.
+     ------------------------------------------------------------------- */
+  --spacing: 0.25rem;
+  --spacing-gutter: 1.25rem; /* 20px  page and card padding on a phone  */
+  --spacing-card: 1.5rem;    /* 24px  card padding from sm upward       */
+  --spacing-section: 4rem;   /* 64px  gap between landing page sections */
+
+  /* -------------------------------------------------------------------
+     CORNER RADIUS
+     Modest. This is read in a meeting with a government client.
+     ------------------------------------------------------------------- */
+  --radius-control: 0.25rem; /* 4px  inputs, small buttons */
+  --radius-card: 0.375rem;   /* 6px  cards, panels, dialogs */
+}
+
+/* =====================================================================
+   shadcn/ui semantic tokens.
+
+   shadcn components are written against generic names (background,
+   primary, destructive…). This block is the only place those names are
+   given values, and every value points back at a brand token above.
+   Change a colour once, at the top; it lands everywhere.
+
+   There is no dark mode. This is an institutional tool with one
+   appearance, and a second palette nobody approved is a second palette
+   nobody checked for contrast.
+   ===================================================================== */
+@theme inline {
+  --color-background: var(--color-page);
+  --color-foreground: var(--color-ink);
+
+  --color-card: var(--color-surface);
+  --color-card-foreground: var(--color-ink);
+
+  --color-popover: var(--color-surface);
+  --color-popover-foreground: var(--color-ink);
+
+  --color-primary: var(--color-brand);
+  --color-primary-foreground: var(--color-surface);
+
+  --color-secondary: var(--color-wash);
+  --color-secondary-foreground: var(--color-ink);
+
+  --color-muted: var(--color-wash);
+  --color-muted-foreground: var(--color-quiet);
+
+  --color-accent: var(--color-wash);
+  --color-accent-foreground: var(--color-ink);
+
+  --color-destructive: var(--color-negative);
+  --color-destructive-foreground: var(--color-surface);
+
+  --color-border: var(--color-line);
+  --color-input: var(--color-control);
+  --color-ring: var(--color-brand);
+
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-control);
+  --radius-lg: var(--radius-card);
+  --radius-xl: var(--radius-card);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    /* Nigeria reads this on a phone held in one hand. Never let iOS
+       zoom the page when a field takes focus. */
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-page);
+    color: var(--color-body);
+    font-family: var(--font-sans);
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    color: var(--color-ink);
+    font-weight: 600;
+    letter-spacing: -0.011em;
+  }
+
+  /* Time and date columns must line up. Public Sans carries tabular
+     figures; this is what asks for them. */
+  table,
+  time,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* A visible focus ring is not optional. Keyboard users and screen
+     readers are how an audit gets passed. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}
+
+/* =====================================================================
+   Enter / exit animation utilities.
+
+   shadcn's Sheet is written against `animate-in`, `fade-in-0` and
+   `slide-in-from-left`. Those classes come from the tw-animate-css
+   plugin, which is a separate library — and the brief says ask before
+   installing a library it does not name. They are forty lines of CSS,
+   so they are written here instead of adding a dependency and a
+   question to answer.
+
+   Deliberately short and linear. A drawer on a phone should feel
+   immediate; this is a system for ministries, not a product tour.
+   ===================================================================== */
+
+@keyframes anthrop-enter {
+  from {
+    opacity: var(--enter-opacity, 1);
+    transform: translate3d(var(--enter-x, 0), var(--enter-y, 0), 0);
+  }
+}
+
+@keyframes anthrop-exit {
+  to {
+    opacity: var(--exit-opacity, 1);
+    transform: translate3d(var(--exit-x, 0), var(--exit-y, 0), 0);
+  }
+}
+
+@utility animate-in {
+  animation-name: anthrop-enter;
+  /* Honours Tailwind's own duration-* utilities, which is how shadcn's
+     Sheet asks for 500ms open and 300ms close. */
+  animation-duration: var(--tw-duration, 200ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.16, 1, 0.3, 1));
+  animation-fill-mode: both;
+  --enter-opacity: initial;
+  --enter-x: initial;
+  --enter-y: initial;
+}
+
+@utility animate-out {
+  animation-name: anthrop-exit;
+  animation-duration: var(--tw-duration, 160ms);
+  animation-timing-function: var(--tw-ease, cubic-bezier(0.4, 0, 1, 1));
+  animation-fill-mode: both;
+  --exit-opacity: initial;
+  --exit-x: initial;
+  --exit-y: initial;
+}
+
+@utility fade-in-0 {
+  --enter-opacity: 0;
+}
+@utility fade-out-0 {
+  --exit-opacity: 0;
+}
+
+@utility slide-in-from-left {
+  --enter-x: -100%;
+}
+@utility slide-in-from-right {
+  --enter-x: 100%;
+}
+@utility slide-in-from-top {
+  --enter-y: -100%;
+}
+@utility slide-in-from-bottom {
+  --enter-y: 100%;
+}
+
+@utility slide-out-to-left {
+  --exit-x: -100%;
+}
+@utility slide-out-to-right {
+  --exit-x: 100%;
+}
+@utility slide-out-to-top {
+  --exit-y: -100%;
+}
+@utility slide-out-to-bottom {
+  --exit-y: 100%;
+}
+
+/* Someone who has asked their operating system to stop moving things
+   has asked this application too. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-in,
+  .animate-out {
+    animation-duration: 1ms !important;
+  }
+}

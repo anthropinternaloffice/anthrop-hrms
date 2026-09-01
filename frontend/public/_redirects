@@ -1,0 +1,4 @@
+# Cloudflare Pages: this is a single-page app. Every address is handled
+# by the client-side router, so serve index.html and let it decide. Without
+# this, a refresh on /app/employees returns a 404 from the CDN.
+/*  /index.html  200
