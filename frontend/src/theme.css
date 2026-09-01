@@ -194,14 +194,16 @@
 @keyframes anthrop-enter {
   from {
     opacity: var(--enter-opacity, 1);
-    transform: translate3d(var(--enter-x, 0), var(--enter-y, 0), 0);
+    transform: translate3d(var(--enter-x, 0), var(--enter-y, 0), 0)
+      scale3d(var(--enter-scale, 1), var(--enter-scale, 1), 1);
   }
 }
 
 @keyframes anthrop-exit {
   to {
     opacity: var(--exit-opacity, 1);
-    transform: translate3d(var(--exit-x, 0), var(--exit-y, 0), 0);
+    transform: translate3d(var(--exit-x, 0), var(--exit-y, 0), 0)
+      scale3d(var(--exit-scale, 1), var(--exit-scale, 1), 1);
   }
 }
 
@@ -215,6 +217,7 @@
   --enter-opacity: initial;
   --enter-x: initial;
   --enter-y: initial;
+  --enter-scale: initial;
 }
 
 @utility animate-out {
@@ -225,6 +228,7 @@
   --exit-opacity: initial;
   --exit-x: initial;
   --exit-y: initial;
+  --exit-scale: initial;
 }
 
 @utility fade-in-0 {
@@ -258,6 +262,30 @@
 }
 @utility slide-out-to-bottom {
   --exit-y: 100%;
+}
+
+/* The numbered variants are a nudge, not a full traverse: Tailwind reads
+   the suffix as a spacing step, so -2 is 0.5rem. Dialogs and dropdowns
+   use these — a menu that flew in from off-screen would be theatre. */
+@utility slide-in-from-top-2 {
+  --enter-y: calc(var(--spacing) * -2);
+}
+@utility slide-in-from-bottom-2 {
+  --enter-y: calc(var(--spacing) * 2);
+}
+@utility slide-in-from-left-2 {
+  --enter-x: calc(var(--spacing) * -2);
+}
+@utility slide-in-from-right-2 {
+  --enter-x: calc(var(--spacing) * 2);
+}
+
+/* Dialogs settle into place rather than appearing at full size. */
+@utility zoom-in-95 {
+  --enter-scale: 0.95;
+}
+@utility zoom-out-95 {
+  --exit-scale: 0.95;
 }
 
 /* Someone who has asked their operating system to stop moving things

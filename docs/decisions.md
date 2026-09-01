@@ -203,3 +203,27 @@ Disabled controls therefore get their own colours instead of being faded: `wash-
 fill, `line` border, `quiet` text, at full opacity. They read as deliberately inert rather
 than as a brand colour that went wrong. This applies to the five "Opening soon" controls on
 the landing page and to any disabled control added later.
+
+---
+
+## D10 — "Not stated" and "Not visible to you" are different sentences
+
+**Date:** 2026-09-01
+**Status:** Fixed at Task 6.
+
+Rule 4 says missing data is displayed as "Not stated". A department's head can be absent
+for two quite different reasons, and only one of them is missing data:
+
+| Situation | Shown as |
+|---|---|
+| `head_person_id` is null — nobody has recorded a head | **Not stated** |
+| A head is recorded, but row-level security will not let this viewer read that person | **Not visible to you** |
+
+The second case is normal rather than exceptional. Every role can read every department in
+their tenant, but a Manager can only read people in their own department and a Staff user
+can only read themselves — so for them most heads resolve to nothing. Showing "Not stated"
+there would assert that no head exists, which is false, and would quietly contradict what
+an Owner sees on the same screen.
+
+The same distinction applies anywhere a joined name is shown to a role that cannot read the
+joined table. Do not collapse the two.

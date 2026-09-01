@@ -1,4 +1,5 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
+import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 
 /**
@@ -14,10 +15,10 @@ import { useAuth } from '@/lib/auth'
  * the database, proved in database/tests/.
  */
 export function RequireAuth() {
-  const { session, initialising } = useAuth()
+  const { session, profile, initialising, profileLoading, signOut } = useAuth()
   const location = useLocation()
 
-  if (initialising) {
+  if (initialising || (session && profileLoading)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-page px-gutter">
         <p className="text-sm text-quiet" role="status">
@@ -33,5 +34,49 @@ export function RequireAuth() {
     return <Navigate to="/login" replace state={{ from: location }} />
   }
 
+  // A sign-in that works but has no profile row behind it. The account
+  // exists in Supabase auth and was never linked to an organisation, so
+  // app.current_tenant_id() returns null and every policy in the database
+  // evaluates to false. Say that, rather than showing a working-looking
+  // application in which nothing is ever found.
+  if (!profile) {
+    return <AccountNotSetUp onSignOut={() => void signOut()} />
+  }
+
+  // A profile that has been switched off. Their policies already return
+  // nothing — current_tenant_id() requires is_active — so this only
+  // replaces a confusing empty screen with the reason for it.
+  if (!profile.isActive) {
+    return (
+      <AccountNotSetUp
+        onSignOut={() => void signOut()}
+        title="This account has been deactivated"
+        body="Your access to Anthrop HR has been switched off. If you think that is a mistake, contact your HR administrator."
+      />
+    )
+  }
+
   return <Outlet />
+}
+
+function AccountNotSetUp({
+  onSignOut,
+  title = 'This account is not set up yet',
+  body = 'Your sign-in works, but it has not been linked to an organisation, so there is nothing here to show you. Ask your HR administrator to finish setting up your account.',
+}: {
+  onSignOut: () => void
+  title?: string
+  body?: string
+}) {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-page px-gutter py-12">
+      <div className="w-full max-w-md rounded-card border border-line bg-surface p-gutter sm:p-card">
+        <h1 className="text-xl font-semibold text-ink">{title}</h1>
+        <p className="mt-3 text-sm leading-relaxed text-body">{body}</p>
+        <Button variant="outline" onClick={onSignOut} className="mt-6 h-11 w-full text-base">
+          Sign out
+        </Button>
+      </div>
+    </div>
+  )
 }

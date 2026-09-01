@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { env } from '@/lib/env'
+import type { Profile } from '@/lib/types'
 
 /**
  * Session state for the whole application.
@@ -20,12 +21,25 @@ import { env } from '@/lib/env'
  */
 
 /** The only message a failed sign-in ever produces. */
-const SIGN_IN_FAILED = 'Those details were not recognised. Check the email address and password, then try again.'
+const SIGN_IN_FAILED =
+  'Those details were not recognised. Check the email address and password, then try again.'
 
 interface AuthContextValue {
   session: Session | null
+  /**
+   * The signed-in person's tenant and role, once loaded.
+   *
+   * Null while loading, and null afterwards for an auth user with no
+   * profile row — an account that exists but has not been set up. That
+   * second case is real and is handled explicitly by the route guard,
+   * because without a profile every query returns nothing and the
+   * application would otherwise just look empty.
+   */
+  profile: Profile | null
   /** True until the first session check finishes. Guards must wait for it. */
   initialising: boolean
+  /** True while the profile for the current session is being fetched. */
+  profileLoading: boolean
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   requestPasswordReset: (email: string) => Promise<{ error: string | null }>
@@ -37,6 +51,8 @@ const AuthContext = createContext<AuthContextValue | null>(null)
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [initialising, setInitialising] = useState(true)
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [profileLoading, setProfileLoading] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -59,6 +75,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  // The profile is fetched per signed-in user, and cleared the moment
+  // there is no user. Keying the effect on the id rather than the whole
+  // session object stops a token refresh from re-fetching it every hour.
+  const userId = session?.user.id ?? null
+
+  useEffect(() => {
+    if (!userId) {
+      setProfile(null)
+      setProfileLoading(false)
+      return
+    }
+
+    let active = true
+    setProfileLoading(true)
+    // Clear first. If one person signs out and another signs in, the
+    // previous profile must not survive even for the length of a fetch —
+    // it carries a tenant id, and this is a multi-tenant system.
+    setProfile(null)
+
+    supabase
+      .from('profiles')
+      .select('id, tenant_id, person_id, role, is_active')
+      .eq('id', userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!active) return
+        setProfile(
+          data
+            ? {
+                id: data.id as string,
+                tenantId: data.tenant_id as string,
+                personId: (data.person_id as string | null) ?? null,
+                role: data.role as Profile['role'],
+                isActive: data.is_active as boolean,
+              }
+            : null,
+        )
+        setProfileLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [userId])
+
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
       email: email.trim(),
@@ -73,6 +134,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     await supabase.auth.signOut()
     setSession(null)
+    setProfile(null)
   }, [])
 
   const requestPasswordReset = useCallback(async (email: string) => {
@@ -93,13 +155,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updatePassword = useCallback(async (password: string) => {
     const { error } = await supabase.auth.updateUser({ password })
     return {
-      error: error ? 'That password could not be set. It may be too short, or the link may have expired.' : null,
+      error: error
+        ? 'That password could not be set. It may be too short, or the link may have expired.'
+        : null,
     }
   }, [])
 
   const value = useMemo(
-    () => ({ session, initialising, signIn, signOut, requestPasswordReset, updatePassword }),
-    [session, initialising, signIn, signOut, requestPasswordReset, updatePassword],
+    () => ({
+      session,
+      profile,
+      initialising,
+      profileLoading,
+      signIn,
+      signOut,
+      requestPasswordReset,
+      updatePassword,
+    }),
+    [
+      session,
+      profile,
+      initialising,
+      profileLoading,
+      signIn,
+      signOut,
+      requestPasswordReset,
+      updatePassword,
+    ],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
