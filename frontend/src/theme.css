@@ -41,11 +41,18 @@
   --color-control: #7c838b;
 
   /* D3 constraint 2: muted text — including the "Not stated" placeholder
-     that rule 4 requires — may be no lighter than this. 4.83:1, AA.
+     that rule 4 requires — may be no lighter than #6B7280.
+
+     This is darker than that floor, deliberately. D3 measured #6B7280 at
+     4.83:1, which is on WHITE. The same grey on the #F5F5F5 page is only
+     4.43:1 and fails AA, and muted text lands on the page at least as
+     often as on a card. This value is 5.21:1 on surface and 4.78:1 on
+     page — it passes on both, and being darker it still honours D3.
+
      Named `quiet`, not `muted`: Tailwind turns `--color-muted` into the
-     `bg-muted` fill utility, and a 4.83:1 grey is a text colour, not a
-     background. The mapping below keeps the two apart. */
-  --color-quiet: #6b7280;
+     `bg-muted` fill utility, and a text grey is not a background. The
+     mapping below keeps the two apart. */
+  --color-quiet: #666d7a;
 
   /* Quiet fills for hover, striping and disabled surfaces. Neutral greys
      off the page colour, carrying no meaning. */

@@ -43,6 +43,19 @@ const CARDS = [
   },
 ] as const
 
+/**
+ * How every not-yet-built control is drawn.
+ *
+ * shadcn's default disabled state is `opacity-50`, which on the primary
+ * button renders Anthrop's navy at half strength over the grey page —
+ * #7A7AAE. That is a lilac, and lilac is the exact thing the brief tells
+ * us to reject from the layout reference. So the disabled state is given
+ * its own colours instead of being faded: a flat grey fill that reads as
+ * inert on purpose rather than as a brand colour that went wrong.
+ */
+const UNAVAILABLE =
+  'disabled:opacity-100 disabled:border-line disabled:bg-wash-strong disabled:text-quiet disabled:shadow-none'
+
 export function Landing() {
   return (
     <div className="flex min-h-dvh flex-col bg-page">
@@ -79,7 +92,7 @@ export function Landing() {
               disabled
               aria-disabled="true"
               aria-describedby="hero-opening-soon"
-              className="h-11 w-full px-5 sm:w-auto"
+              className={`h-11 w-full px-5 sm:w-auto ${UNAVAILABLE}`}
             >
               View open roles
             </Button>
@@ -88,7 +101,7 @@ export function Landing() {
               disabled
               aria-disabled="true"
               aria-describedby="hero-opening-soon"
-              className="h-11 w-full px-5 sm:w-auto"
+              className={`h-11 w-full px-5 sm:w-auto ${UNAVAILABLE}`}
             >
               Submit your CV
             </Button>
@@ -119,7 +132,7 @@ export function Landing() {
                       disabled
                       aria-disabled="true"
                       aria-describedby={card.id + '-opening-soon'}
-                      className="h-10 px-4"
+                      className={`h-10 px-4 ${UNAVAILABLE}`}
                     >
                       {card.action}
                     </Button>

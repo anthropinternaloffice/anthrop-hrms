@@ -168,7 +168,7 @@ is a new brand colour.
 | Token | Hex | Why it exists |
 |---|---|---|
 | `control` | `#7C838B` | D3 constraint 1: `line` `#D3D5D6` is 1.47:1 and too faint for the border of an interactive control, which WCAG 1.4.11 requires to be 3:1. This is 3.84:1 and is used on inputs, selects and checkboxes. |
-| `quiet` | `#6B7280` | D3 constraint 2 verbatim — the floor for muted text, including the "Not stated" placeholder that rule 4 requires. 4.83:1, AA. |
+| `quiet` | `#666D7A` | D3 constraint 2 set `#6B7280` as the floor for muted text, including the "Not stated" placeholder that rule 4 requires. That 4.83:1 was measured on **white**; on the `#F5F5F5` page the same grey is **4.43:1 and fails AA**, and muted text lands on the page as often as on a card. This value is 5.21:1 on `surface` and 4.78:1 on `page`. It is darker than D3's floor, so it honours the constraint rather than relaxing it. |
 
 `quiet` is deliberately not called `muted`: Tailwind turns `--color-muted` into the
 `bg-muted` fill utility, and pointing a fill at a 4.83:1 text grey would paint dark blocks
@@ -186,3 +186,20 @@ shadcn/ui's Sheet — the sidebar drawer on a phone — is written against `anim
 brief says to ask before installing a library it does not name. The classes are about
 forty lines of CSS, so they are defined at the bottom of `frontend/src/theme.css` instead
 of adding a dependency. They honour `prefers-reduced-motion`.
+
+---
+
+## D9 — Unavailable controls are greyed, not faded
+
+**Date:** 2026-09-01
+**Status:** Fixed at Task 5, after the Gate 4 review.
+
+shadcn/ui draws a disabled button with `opacity-50`. On the primary button that renders
+Anthrop's navy at half strength over the grey page — `#7A7AAE`, a lilac. The brief names
+"playful lilac pastels" as the first thing to reject from the layout reference, so the
+default was producing precisely the rejected colour by accident.
+
+Disabled controls therefore get their own colours instead of being faded: `wash-strong`
+fill, `line` border, `quiet` text, at full opacity. They read as deliberately inert rather
+than as a brand colour that went wrong. This applies to the five "Opening soon" controls on
+the landing page and to any disabled control added later.
