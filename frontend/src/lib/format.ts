@@ -73,3 +73,29 @@ export function personName(person: {
   const given = isMissing(person.preferredName) ? person.firstName : (person.preferredName as string)
   return `${given} ${person.lastName}`.trim()
 }
+
+/**
+ * A date, written the way it is written in Lagos: 4 February 2024.
+ *
+ * These are `date` columns, not timestamps — a start date has no time
+ * and no zone, and parsing one as a timestamp is how a date silently
+ * shifts by a day for anyone west of the server. So the string is split
+ * on its own rather than handed to `new Date()`.
+ */
+const MONTHS = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]
+
+export function formatDate(value: string | null | undefined): string {
+  if (isMissing(value)) return NOT_STATED
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec((value as string).trim())
+  if (!match) return NOT_STATED
+
+  const [, year, month, day] = match
+  const monthName = MONTHS[Number(month) - 1]
+  if (!monthName) return NOT_STATED
+
+  return `${Number(day)} ${monthName} ${year}`
+}

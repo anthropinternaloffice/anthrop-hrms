@@ -80,3 +80,51 @@ export interface EmployeeRow {
   departmentName: string | null
   status: EmploymentStatus | null
 }
+
+/** Everything on the `people` row, as the profile shows it. */
+export interface PersonDetail {
+  id: string
+  firstName: string
+  middleName: string | null
+  lastName: string
+  preferredName: string | null
+  email: string | null
+  phone: string | null
+  dateOfBirth: string | null
+  addressLine1: string | null
+  addressLine2: string | null
+  city: string | null
+  state: string | null
+  country: string | null
+}
+
+/** One job this person has held. */
+export interface EmploymentDetail {
+  id: string
+  jobTitle: string | null
+  departmentName: string | null
+  status: EmploymentStatus
+  startDate: string | null
+  endDate: string | null
+  /** Null when no manager is recorded. */
+  managerEmploymentId: string | null
+  /**
+   * The manager's name, or null. Null with a non-null
+   * managerEmploymentId means a manager exists but this viewer cannot
+   * read them — a different sentence from "no manager" (D10).
+   */
+  managerName: string | null
+}
+
+export interface EmergencyContact {
+  id: string
+  name: string
+  relationship: string | null
+  phone: string | null
+}
+
+export interface EmployeeProfile {
+  person: PersonDetail
+  employments: EmploymentDetail[]
+  emergencyContacts: EmergencyContact[]
+}

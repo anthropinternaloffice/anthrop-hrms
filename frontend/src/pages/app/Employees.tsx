@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -191,7 +192,12 @@ function EmployeeList({ employees }: { employees: EmployeeRow[] }) {
         {employees.map((employee) => (
           <li key={employee.personId} className="rounded-card border border-line bg-surface p-gutter">
             <div className="flex items-start justify-between gap-3">
-              <p className="font-medium text-ink">{employee.name}</p>
+              <Link
+                to={`/app/employees/${employee.personId}`}
+                className="rounded-control font-medium text-brand underline underline-offset-4"
+              >
+                {employee.name}
+              </Link>
               <StatusBadge status={employee.status} />
             </div>
 
@@ -227,7 +233,14 @@ function EmployeeList({ employees }: { employees: EmployeeRow[] }) {
           <TableBody>
             {employees.map((employee) => (
               <TableRow key={employee.personId}>
-                <TableCell className="font-medium text-ink">{employee.name}</TableCell>
+                <TableCell className="font-medium">
+                  <Link
+                    to={`/app/employees/${employee.personId}`}
+                    className="rounded-control text-brand underline underline-offset-4"
+                  >
+                    {employee.name}
+                  </Link>
+                </TableCell>
                 <TableCell className={employee.jobTitle ? 'text-body' : 'text-quiet'}>
                   {employee.jobTitle ?? NOT_STATED}
                 </TableCell>

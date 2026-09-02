@@ -11,6 +11,7 @@ import {
   Attendance,
   AuditLog,
   Departments,
+  EmployeeProfile,
   Employees,
   Home,
   JobTitles,
@@ -46,6 +47,7 @@ export function App() {
             <Route path="/app" element={<AppLayout />}>
               <Route index element={<Home />} />
               <Route path="employees" element={<Employees />} />
+              <Route path="employees/:personId" element={<EmployeeProfile />} />
               <Route path="departments" element={<Departments />} />
               <Route path="job-titles" element={<JobTitles />} />
               <Route path="attendance" element={<Attendance />} />
