@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { NOT_STATED, formatDate, isMissing, personName } from '@/lib/format'
@@ -9,7 +9,8 @@ import { getEmployeeProfile } from '@/lib/employeeProfile'
 import type { EmployeeProfile, EmploymentDetail } from '@/lib/types'
 
 /**
- * One employee's record. Read-only — editing arrives in Task 9.
+ * One employee's record. Reading only; the Edit button hands off to
+ * EmployeeForm, which does all the writing.
  *
  * Everything absent reads "Not stated" (rule 4). Where a value is
  * absent because this viewer is not allowed to see it, the screen says
@@ -88,12 +89,14 @@ export function EmployeeProfile() {
   }
 
   const { person, employments, emergencyContacts } = profile
+  const canEdit = viewer?.role === 'owner' || viewer?.role === 'hr'
   const canSeeEmergencyContacts =
     viewer?.role === 'owner' || viewer?.role === 'hr' || viewer?.personId === person.id
 
   return (
     <Frame>
-      <header>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
         <h1 className="text-2xl font-semibold text-ink">
           {personName({
             firstName: person.firstName,
@@ -109,6 +112,16 @@ export function EmployeeProfile() {
               .filter((part) => !isMissing(part))
               .join(' ')}
           </p>
+        )}
+        </div>
+
+        {canEdit && (
+          <Button asChild variant="outline" className="h-11 w-full shrink-0 sm:w-auto">
+            <Link to={`/app/employees/${person.id}/edit`}>
+              <Pencil className="size-4" aria-hidden="true" />
+              Edit
+            </Link>
+          </Button>
         )}
       </header>
 
