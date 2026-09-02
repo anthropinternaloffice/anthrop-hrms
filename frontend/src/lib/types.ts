@@ -169,3 +169,30 @@ export interface WhoIsInRow {
   personName: string | null
   departmentName: string | null
 }
+
+/** public.audit_action. 'download' exists because a read leaves no trigger behind. */
+export type AuditAction = 'insert' | 'update' | 'delete' | 'download'
+
+/** One line of the audit log, already made readable. */
+export interface AuditEntry {
+  id: string
+  occurredAt: string
+  /** Null when the database itself acted, with nobody signed in. */
+  actorUserId: string | null
+  action: AuditAction
+  tableName: string
+  recordId: string | null
+  /** What the record was called at the time, where the table has a name at all. */
+  subject: string | null
+  /** Which columns an update touched. Empty for inserts, deletes and downloads. */
+  changed: string[]
+  correctionReason: string | null
+}
+
+/** Somebody who can appear in the "who" column. */
+export interface AuditActor {
+  id: string
+  /** Null when the account is not linked to a person record. */
+  name: string | null
+  role: string
+}

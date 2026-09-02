@@ -6,7 +6,8 @@ import { ClockCard } from '@/components/ClockCard'
  * The Module 1 screens.
  *
  * Built: departments and job titles (6), the employee list (7), the
- * profile (8), the add/edit forms (9), documents (10) and clocking (11).
+ * profile (8), the add/edit forms (9), documents (10), clocking (11)
+ * and the audit log viewer (12).
  * What is left is still an empty page naming the task that fills it in,
  * so the ordering stays visible and nothing gets built out of turn.
  */
@@ -15,6 +16,7 @@ export { Departments } from '@/pages/app/Departments'
 export { JobTitles } from '@/pages/app/JobTitles'
 export { Employees } from '@/pages/app/Employees'
 export { Attendance } from '@/pages/app/Attendance'
+export { AuditLog } from '@/pages/app/AuditLog'
 export { EmployeeProfile } from '@/pages/app/EmployeeProfile'
 
 export function EmployeeNew() {
@@ -51,6 +53,3 @@ export function UsersAndRoles() {
   )
 }
 
-export function AuditLog() {
-  return <Placeholder title="Audit log" task="Task 12 — the audit log viewer, for the Owner" />
-}
