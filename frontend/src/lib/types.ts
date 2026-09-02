@@ -138,3 +138,34 @@ export interface EmployeeDocument {
   documentType: string | null
   uploadedAt: string
 }
+
+/** public.attendance_source. There is no 'device' value, by design (rule 8). */
+export type AttendanceSource = 'self_service' | 'hr_correction'
+
+/**
+ * One clock-in, and the clock-out that closed it if it has been closed.
+ *
+ * The `original*` fields are only ever populated by a correction, and
+ * they are what makes "the original value stays visible beside the
+ * correction" possible.
+ */
+export interface AttendanceRecord {
+  id: string
+  clockInAt: string
+  clockInSource: AttendanceSource
+  clockOutAt: string | null
+  clockOutSource: AttendanceSource | null
+  correctedAt: string | null
+  correctionReason: string | null
+  originalClockInAt: string | null
+  originalClockOutAt: string | null
+}
+
+/** A row of "who is in today". */
+export interface WhoIsInRow {
+  record: AttendanceRecord
+  employmentId: string
+  /** Null when the viewer may not read that person (D10). */
+  personName: string | null
+  departmentName: string | null
+}

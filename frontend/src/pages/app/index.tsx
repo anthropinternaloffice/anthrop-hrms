@@ -1,19 +1,20 @@
 import { Placeholder } from '@/pages/app/Placeholder'
 import { EmployeeForm } from '@/pages/app/EmployeeForm'
+import { ClockCard } from '@/components/ClockCard'
 
 /**
  * The Module 1 screens.
  *
- * Departments and Job titles (Task 6), the employee list (Task 7), the
- * employee profile (Task 8) and the add/edit forms (Task 9) are built. The
- * rest are still empty pages naming the task from the build brief that
- * fills them in, so the ordering stays visible and nothing gets built
- * out of turn.
+ * Built: departments and job titles (6), the employee list (7), the
+ * profile (8), the add/edit forms (9), documents (10) and clocking (11).
+ * What is left is still an empty page naming the task that fills it in,
+ * so the ordering stays visible and nothing gets built out of turn.
  */
 
 export { Departments } from '@/pages/app/Departments'
 export { JobTitles } from '@/pages/app/JobTitles'
 export { Employees } from '@/pages/app/Employees'
+export { Attendance } from '@/pages/app/Attendance'
 export { EmployeeProfile } from '@/pages/app/EmployeeProfile'
 
 export function EmployeeNew() {
@@ -24,12 +25,21 @@ export function EmployeeEdit() {
   return <EmployeeForm mode="edit" />
 }
 
+/**
+ * The home screen.
+ *
+ * One card, because one card is what the brief asks for. The layout
+ * reference also shows a row of statistics, but Task 11 says "build only
+ * this" and does not list them — and a number here would be a claim
+ * about performance that Anthrop has set no policy for (D4).
+ */
 export function Home() {
-  return <Placeholder title="Home" task="Task 11 — clocking, and the status cards above it" />
-}
-
-export function Attendance() {
-  return <Placeholder title="Attendance" task="Task 11 — my attendance, and who is in today" />
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-semibold text-ink">Home</h1>
+      <ClockCard />
+    </div>
+  )
 }
 
 export function UsersAndRoles() {

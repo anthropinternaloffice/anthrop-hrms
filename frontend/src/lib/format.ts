@@ -99,3 +99,69 @@ export function formatDate(value: string | null | undefined): string {
 
   return `${Number(day)} ${monthName} ${year}`
 }
+
+/**
+ * Every time in this system is shown in Lagos time, whatever the device
+ * thinks.
+ *
+ * Rule 8 exists because a device clock can be changed in seconds, and
+ * the same reasoning applies to reading times as to writing them. A
+ * phone left on the wrong timezone would otherwise show a colleague
+ * clocking in at 05:30 when they arrived at 08:30 — the stored instant
+ * is right and the screen is lying. Anthrop is in Lagos; the office day
+ * is a Lagos day.
+ */
+export const DISPLAY_TIME_ZONE = 'Africa/Lagos'
+
+/** 08:32 */
+export function formatTime(iso: string | null | undefined): string {
+  if (isMissing(iso)) return NOT_STATED
+  return new Date(iso as string).toLocaleTimeString('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: DISPLAY_TIME_ZONE,
+  })
+}
+
+/** 2 September 2026 */
+export function formatDayLong(iso: string | null | undefined): string {
+  if (isMissing(iso)) return NOT_STATED
+  return new Date(iso as string).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: DISPLAY_TIME_ZONE,
+  })
+}
+
+/** Wednesday 2 September */
+export function formatDayWithWeekday(iso: string | null | undefined): string {
+  if (isMissing(iso)) return NOT_STATED
+  return new Date(iso as string).toLocaleDateString('en-GB', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    timeZone: DISPLAY_TIME_ZONE,
+  })
+}
+
+/** The YYYY-MM-DD a given instant falls on in Lagos. */
+export function lagosDayKey(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: DISPLAY_TIME_ZONE })
+}
+
+/**
+ * How long between two instants, in plain words.
+ *
+ * Deliberately not a decision about anything. It says how long someone
+ * was present; it does not say whether that was enough, or late, or
+ * overtime. Those are policy questions Anthrop has not answered (D4).
+ */
+export function formatDuration(fromIso: string, toIso: string): string {
+  const minutes = Math.max(0, Math.round((new Date(toIso).getTime() - new Date(fromIso).getTime()) / 60000))
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  if (hours === 0) return `${rest} min`
+  if (rest === 0) return `${hours} hr`
+  return `${hours} hr ${rest} min`
+}
