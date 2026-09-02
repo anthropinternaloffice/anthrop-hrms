@@ -3,20 +3,18 @@ import { Placeholder } from '@/pages/app/Placeholder'
 /**
  * The Module 1 screens.
  *
- * Departments and Job titles are built (Task 6). The rest are still
- * empty pages naming the task from the build brief that fills them in,
- * so the ordering stays visible and nothing gets built out of turn.
+ * Departments, Job titles (Task 6) and Employees (Task 7) are built. The
+ * rest are still empty pages naming the task from the build brief that
+ * fills them in, so the ordering stays visible and nothing gets built
+ * out of turn.
  */
 
 export { Departments } from '@/pages/app/Departments'
 export { JobTitles } from '@/pages/app/JobTitles'
+export { Employees } from '@/pages/app/Employees'
 
 export function Home() {
   return <Placeholder title="Home" task="Task 11 — clocking, and the status cards above it" />
-}
-
-export function Employees() {
-  return <Placeholder title="Employees" task="Task 7 — the employee list" />
 }
 
 export function Attendance() {

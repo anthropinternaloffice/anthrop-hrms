@@ -48,3 +48,35 @@ export interface PersonOption {
   id: string
   name: string
 }
+
+/** public.employment_status. */
+export type EmploymentStatus = 'active' | 'ended'
+
+/**
+ * One line of the employee list: a person, plus the employment that
+ * describes what they currently do here.
+ *
+ * Every employment field is nullable because every one of them can
+ * genuinely be unknown. A person can exist with no employment recorded
+ * yet — the two are separate tables on purpose (D2) — and an employment
+ * can exist with no department or job title attached. Rule 4: each of
+ * those reads as "Not stated" rather than being guessed at or hidden.
+ */
+export interface EmployeeRow {
+  personId: string
+  name: string
+  /** Sorted on, so it is kept separately from the display name. */
+  lastName: string
+  /**
+   * Every form of the name, lower-cased, for the search box.
+   *
+   * The list shows the preferred name, but somebody looking for Abiodun
+   * should still find her when the row reads "Bola Adeyemi". Searching
+   * only what is displayed would hide people behind their own nickname.
+   */
+  searchText: string
+  jobTitle: string | null
+  departmentId: string | null
+  departmentName: string | null
+  status: EmploymentStatus | null
+}

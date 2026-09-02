@@ -53,3 +53,23 @@ const ROLE_LABELS: Record<AppRole, string> = {
 export function roleLabel(role: AppRole): string {
   return ROLE_LABELS[role]
 }
+
+/**
+ * How a person's name is written on screen.
+ *
+ * The preferred name wins over the first name when there is one: someone
+ * who goes by Bola should be called Bola by their own HR system. The
+ * legal first name still exists on the record and on their profile — it
+ * is not being discarded, only not led with.
+ *
+ * Middle names are deliberately left out of list views. They belong on
+ * the profile, not in a column that has to survive a phone.
+ */
+export function personName(person: {
+  firstName: string
+  lastName: string
+  preferredName?: string | null
+}): string {
+  const given = isMissing(person.preferredName) ? person.firstName : (person.preferredName as string)
+  return `${given} ${person.lastName}`.trim()
+}
