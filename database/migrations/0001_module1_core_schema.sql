@@ -676,7 +676,7 @@ create policy people_select_manager on public.people
              select 1 from public.employments e
              where e.person_id = people.id
                and e.tenant_id = people.tenant_id
-               and e.department_id = any ((select app.managed_department_ids()))
+               and e.department_id = any ((select app.managed_department_ids())::uuid[])
            )
          ));
 
@@ -760,7 +760,7 @@ create policy employments_select_manager on public.employments
   using (tenant_id = (select app.current_tenant_id())
          and (select app.current_app_role()) = 'manager'
          and (person_id = (select app.current_person_id())
-              or department_id = any ((select app.managed_department_ids()))));
+              or department_id = any ((select app.managed_department_ids())::uuid[])));
 
 create policy employments_select_staff on public.employments
   for select to authenticated
@@ -832,7 +832,7 @@ create policy attendance_select_manager on public.attendance_records
            where e.id = attendance_records.employment_id
              and e.tenant_id = attendance_records.tenant_id
              and (e.person_id = (select app.current_person_id())
-                  or e.department_id = any ((select app.managed_department_ids())))
+                  or e.department_id = any ((select app.managed_department_ids())::uuid[]))
          ));
 
 create policy attendance_select_own on public.attendance_records
