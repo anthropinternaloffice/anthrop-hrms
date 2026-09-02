@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
 import { NOT_STATED, formatDate, isMissing, personName } from '@/lib/format'
 import { getEmployeeProfile } from '@/lib/employeeProfile'
+import { EmployeeDocuments } from '@/components/EmployeeDocuments'
 import type { EmployeeProfile, EmploymentDetail } from '@/lib/types'
 
 /**
@@ -90,6 +91,12 @@ export function EmployeeProfile() {
 
   const { person, employments, emergencyContacts } = profile
   const canEdit = viewer?.role === 'owner' || viewer?.role === 'hr'
+  /**
+   * Emergency contacts and documents share one rule: Owner, HR, or the
+   * person themselves. A Manager is excluded from both — migration 0001
+   * grants them neither, and a department head is not given sight of
+   * personnel files.
+   */
   const canSeeEmergencyContacts =
     viewer?.role === 'owner' || viewer?.role === 'hr' || viewer?.personId === person.id
 
@@ -153,6 +160,16 @@ export function EmployeeProfile() {
             ))}
           </ul>
         )}
+      </Section>
+
+      <Section title="Documents">
+        <EmployeeDocuments
+          personId={person.id}
+          tenantId={viewer?.tenantId ?? ''}
+          uploadedBy={viewer?.id ?? ''}
+          canUpload={canEdit}
+          canRead={canSeeEmergencyContacts}
+        />
       </Section>
 
       <Section title="Emergency contacts">

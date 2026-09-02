@@ -128,3 +128,13 @@ export interface EmployeeProfile {
   employments: EmploymentDetail[]
   emergencyContacts: EmergencyContact[]
 }
+
+/** A file attached to an employee. Metadata only — the file lives in Storage. */
+export interface EmployeeDocument {
+  id: string
+  originalFilename: string
+  mimeType: string | null
+  sizeBytes: number | null
+  documentType: string | null
+  uploadedAt: string
+}
