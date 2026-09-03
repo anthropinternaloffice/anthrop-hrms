@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { env } from '@/lib/env'
+import { siteUrl } from '@/lib/env'
 import type { Profile } from '@/lib/types'
 
 /**
@@ -139,9 +139,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const requestPasswordReset = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      // The address is a variable, never a constant: this deployment moves
-      // from .pages.dev to hr.anthropmanagement.com before Module 2.
-      redirectTo: `${env.siteUrl}/reset-password`,
+      // Read fresh at the moment the reset is requested, not frozen at
+      // build time. This deployment moves from .pages.dev to
+      // hr.anthropmanagement.com before Module 2, and that move must not
+      // require anyone to remember to rebuild.
+      redirectTo: `${siteUrl()}/reset-password`,
     })
     // The caller shows the same confirmation either way. Only a genuine
     // transport failure is worth surfacing, and even that says nothing

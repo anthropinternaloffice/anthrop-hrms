@@ -227,3 +227,37 @@ an Owner sees on the same screen.
 
 The same distinction applies anywhere a joined name is shown to a role that cannot read the
 joined table. Do not collapse the two.
+
+---
+
+## D11 — The site's own address is read at runtime, not built in
+
+**Date:** 2026-09-02
+**Status:** Fixed. Supersedes the build brief's instruction on this one point.
+
+The brief says the site address "goes in an environment variable, because the domain changes
+later". It was `VITE_SITE_URL`, and that turned out to be the wrong tool for the reason the
+brief gives.
+
+Vite replaces `import.meta.env.*` with a string literal during `npm run build`. The address
+was therefore frozen at the moment the site was built — a scan of the production bundle
+during Task 13 found `VITE_SITE_URL:"http://localhost:5173"` sitting in the JavaScript.
+Anyone who changed the domain without also rebuilding would carry on sending password-reset
+emails pointing at the old address, with nothing to suggest anything was wrong: every other
+part of the site would work perfectly.
+
+`window.location.origin` is read fresh each time it is needed. It is correct on localhost,
+correct on every preview deployment, and correct after the move to
+`hr.anthropmanagement.com` — with no rebuild and nothing to configure.
+
+**This honours the brief's reasoning while departing from its letter.** The instruction was
+given "because the domain changes later"; reading the address live serves that purpose
+strictly better than an environment variable, and it is the opposite of hard-coding.
+
+**It is not an open redirect.** Supabase only redirects to addresses on its own allowlist
+(Authentication → URL Configuration). A tampered origin is refused there rather than
+honoured. That allowlist is the security control; this value only has to be honest about
+where the browser currently is.
+
+`VITE_SITE_URL` survives as an optional override for the single case the browser cannot see:
+serving from behind a proxy on a different public address. It should normally be unset.

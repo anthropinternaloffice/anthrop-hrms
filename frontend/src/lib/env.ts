@@ -45,6 +45,41 @@ function refuseServiceRoleKey(key: string): string {
 export const env = {
   supabaseUrl: required('VITE_SUPABASE_URL'),
   supabaseAnonKey: refuseServiceRoleKey(required('VITE_SUPABASE_ANON_KEY')),
-  /** No trailing slash, so `${siteUrl}/reset-password` is always well formed. */
-  siteUrl: required('VITE_SITE_URL').replace(/\/+$/, ''),
 } as const
+
+/**
+ * Where this deployment lives — read from the browser, fresh, every time
+ * it is asked for.
+ *
+ * This used to be `VITE_SITE_URL`, and that was a mistake. Vite replaces
+ * `import.meta.env.*` with a string literal during `npm run build`, so
+ * the address was frozen at the moment the site was built: the bundle
+ * literally contained `VITE_SITE_URL:"http://localhost:5173"`. Anyone
+ * who changed the domain and did not also rebuild would carry on sending
+ * password-reset emails pointing at the old address — and would have no
+ * reason to suspect it, because every other part of the site would work.
+ *
+ * `window.location.origin` is the address the person is actually on. It
+ * cannot go stale, it is right on a preview deployment and on localhost
+ * without anyone configuring anything, and it survives the move to
+ * hr.anthropmanagement.com with no rebuild at all.
+ *
+ * This is not a hole. Supabase only redirects to addresses on its own
+ * allowlist (Authentication → URL Configuration), so a tampered origin
+ * is refused there rather than honoured. The allowlist is the control;
+ * this value only has to be honest about where we are.
+ *
+ * `VITE_SITE_URL` survives as an optional override for the one case the
+ * browser cannot see: serving from behind a proxy on a different public
+ * address. Leave it unset unless that is true.
+ */
+export function siteUrl(): string {
+  const override = import.meta.env.VITE_SITE_URL
+  const value =
+    typeof override === 'string' && override.trim() !== ''
+      ? override.trim()
+      : window.location.origin
+
+  // No trailing slash, so `${siteUrl()}/reset-password` is well formed.
+  return value.replace(/\/+$/, '')
+}

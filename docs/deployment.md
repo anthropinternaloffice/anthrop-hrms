@@ -10,19 +10,20 @@ The human does the deploying. This document is the whole of what that takes.
 ## The one thing that catches people out
 
 **Environment variables are baked into the JavaScript at build time, not read when the page
-loads.**
+loads.** Vite replaces `import.meta.env.VITE_*` with literal strings during `npm run build`.
 
-Vite replaces `import.meta.env.VITE_*` with literal strings during `npm run build`. You can
-see it in the output of a local build — the bundle contains
-`VITE_SITE_URL:"http://localhost:5173"` if that is what was set when it ran.
-
-Two consequences, and both have bitten real projects:
+Two consequences:
 
 1. **Set the variables in Cloudflare _before_ the first build.** A build made without them
-   ships a site whose password-reset emails point at `localhost`.
+   ships a site that cannot reach Supabase at all.
 2. **Changing a variable does nothing until you rebuild.** After editing one in the
    Cloudflare dashboard, trigger a new deployment. Nothing about the running site picks it
    up on its own.
+
+**The site's own address is deliberately not one of them.** It is read from the browser
+(`window.location.origin`) each time it is needed, so it is correct on localhost, on every
+preview deployment, and after the move to `hr.anthropmanagement.com` — with no rebuild and
+nothing to configure. See D11 in `docs/decisions.md` for why that is safe.
 
 ---
 
@@ -76,14 +77,17 @@ build that works locally fails on Cloudflare.
 
 ## Environment variables
 
-Set all three in **Cloudflare Pages → Settings → Environment variables**, for the
-**Production** environment (and Preview too, if you use preview deployments).
+Set both in **Cloudflare Pages → Settings → Environment variables**, for the **Production**
+environment (and Preview too, if you use preview deployments).
 
 | Variable | Where to find it | Example |
 |---|---|---|
 | `VITE_SUPABASE_URL` | Supabase → Project Settings → API → Project URL | `https://abcdefgh.supabase.co` |
 | `VITE_SUPABASE_ANON_KEY` | Supabase → Project Settings → API Keys → **Publishable** key (or the legacy **anon** key) | `sb_publishable_…` |
-| `VITE_SITE_URL` | The address this deployment answers on, **no trailing slash** | `https://anthrop-hrms.pages.dev` |
+
+There used to be a third, `VITE_SITE_URL`. It is now optional and should be left unset — the
+address is read live from the browser. Set it only if the app is ever served from behind a
+proxy on a different public address than the browser sees.
 
 ### What must never go here
 
@@ -109,7 +113,7 @@ Easy to miss, because everything else works without them and only password reset
 - **Site URL** — the deployed address, e.g. `https://anthrop-hrms.pages.dev`
 - **Redirect URLs** — add `https://anthrop-hrms.pages.dev/reset-password`
 
-The application sends users to `${VITE_SITE_URL}/reset-password` from the reset email.
+The application sends users to `<the address they are on>/reset-password` from the reset email.
 Supabase refuses to redirect anywhere that is not on that allowlist, so a reset link will
 fail silently until the address is added. Keep `http://localhost:5173/reset-password` on the
 list as well while anyone is still developing locally.
@@ -121,14 +125,16 @@ list as well while anyone is still developing locally.
 **Use the free `.pages.dev` address for now.** The custom domain comes before Module 2 goes
 public.
 
-When that switch happens, three things change together and all three must be done:
+When that switch happens, two things change together:
 
 1. The custom domain is added in Cloudflare Pages
-2. `VITE_SITE_URL` is updated **and the site is rebuilt**
-3. The Supabase Site URL and Redirect URLs are updated to match
+2. The Supabase **Site URL** and **Redirect URLs** are updated to match
 
-Doing any one of them alone leaves password reset pointing at the old address. The subdomain
-itself is still an open question for Anthrop — `hr.` or `portal.` — see
+The application needs no change and no rebuild — it reads its own address. Forgetting step 2
+is the failure to watch for: Supabase will refuse to redirect to an address that is not on
+its allowlist, and password reset stops working while everything else carries on fine.
+
+The subdomain itself is still an open question for Anthrop — `hr.` or `portal.` — see
 `docs/modules/01-hr-core.md`.
 
 ---
@@ -142,8 +148,8 @@ Nothing here needs a tool. It is the Definition of Done, walked through on a pho
 - [ ] Signing in works; signing out and revisiting `/app` returns you to the login page
 - [ ] **Refresh the page while on `/app/employees`** — it should reload the list, not 404.
       This is the `_redirects` check and it only fails once deployed.
-- [ ] **Request a password reset** and confirm the emailed link opens the deployed site, not
-      `localhost`. This is the check that catches a build made before the variables were set.
+- [ ] **Request a password reset** and confirm the emailed link opens the deployed site. If
+      it fails, the address is almost certainly missing from Supabase's redirect allowlist.
 - [ ] Add a department, a job title and an employee
 - [ ] Upload a document and download it back
 - [ ] Clock in, clock out, and see both in "My attendance"
@@ -161,7 +167,7 @@ in the Cloudflare dashboard.
 
 ```
 cd frontend
-cp .env.example .env.local     # then fill in the three values
+cp .env.example .env.local     # then fill in the two values
 npm install
 npm run dev
 ```
