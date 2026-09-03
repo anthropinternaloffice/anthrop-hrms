@@ -1,0 +1,124 @@
+# Nightly database backup.
+#
+# The free Supabase plan takes no backups. Everything Anthrop records —
+# every employee, every document reference, every attendance record — is
+# in one database with no copy anywhere else. This makes a copy.
+#
+# WHAT IS IN THE ARTIFACT
+#
+# A full dump of a personnel database: names, phone numbers, dates of
+# birth, home addresses, emergency contacts. Anyone who can read this
+# repository's Actions can download it.
+#
+# That is why the brief insists the repository is private, and it is
+# worth re-checking that it still is. If Anthrop ever needs to add
+# collaborators who should not see staff data, this workflow has to move
+# somewhere with tighter access before that happens.
+#
+# The dump does NOT include the files in Storage — employee documents
+# live in the bucket, not in Postgres. Restoring this gives you every
+# record of a document and none of the documents. That gap is real and
+# is written down in docs/restore-test.md.
+#
+# Secrets required, in Settings -> Secrets and variables -> Actions:
+#   SUPABASE_DB_URL   the Session pooler connection string, including
+#                     the database password
+#
+# Use the SESSION POOLER string, not the direct connection. Supabase
+# hands out direct connections over IPv6, and GitHub's runners are
+# IPv4-only, so the direct string times out here while working perfectly
+# from a laptop. Supabase -> Project Settings -> Database -> Connection
+# string -> Session pooler.
+
+name: Nightly backup
+
+on:
+  schedule:
+    # 02:15 UTC (03:15 Lagos) — after the working day, and off the hour
+    # where every other project on the platform schedules its jobs.
+    - cron: '15 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: backup
+  cancel-in-progress: false
+
+jobs:
+  dump:
+    name: Dump and keep
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install the Supabase CLI
+        # Used rather than the runner's own pg_dump, whose version has to
+        # match the server's. The CLI handles that; a mismatch otherwise
+        # fails with an error that looks nothing like its cause.
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Dump the database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "::error::SUPABASE_DB_URL must be set as a repository secret (use the Session pooler string)."
+            exit 1
+          fi
+
+          mkdir -p backup
+          stamp="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+          echo "STAMP=${stamp}" >> "$GITHUB_ENV"
+
+          # Three files, because they are restored in this order and
+          # separating them makes that obvious.
+          supabase db dump --db-url "$SUPABASE_DB_URL" -f "backup/01-schema.sql"
+          supabase db dump --db-url "$SUPABASE_DB_URL" --data-only --use-copy -f "backup/02-data.sql"
+          # Roles are dumped too: without them a restore fails on the
+          # GRANTs to anon and authenticated that every policy depends on.
+          supabase db dump --db-url "$SUPABASE_DB_URL" --role-only -f "backup/00-roles.sql"
+
+          {
+            echo "Anthrop HRMS database backup"
+            echo "Taken:   ${stamp}"
+            echo "By:      .github/workflows/backup.yml, run ${GITHUB_RUN_ID}"
+            echo
+            echo "Restore in this order: 00-roles.sql, 01-schema.sql, 02-data.sql."
+            echo "See docs/restore-test.md."
+            echo
+            echo "This does NOT contain Storage objects. Employee documents live in"
+            echo "the employee-documents bucket and are not part of a database dump."
+          } > backup/README.txt
+
+      - name: Check the dump is not empty
+        run: |
+          set -euo pipefail
+          # A dump that silently produced nothing is worse than a failed
+          # one: it looks like a backup and restores to an empty database.
+          for f in backup/00-roles.sql backup/01-schema.sql backup/02-data.sql; do
+            size=$(wc -c < "$f")
+            echo "$f — ${size} bytes"
+            if [ "$size" -lt 100 ]; then
+              echo "::error::$f is suspiciously small. Treat this run as failed."
+              exit 1
+            fi
+          done
+          grep -q "attendance_records" backup/01-schema.sql \
+            || { echo "::error::The schema dump has no attendance_records table. It is not a dump of this database."; exit 1; }
+
+      - name: Keep it
+        uses: actions/upload-artifact@v4
+        with:
+          name: anthrop-hrms-backup-${{ env.STAMP }}
+          path: backup/
+          # Ninety days is the platform maximum on the free plan. It is
+          # not an archive: anything Anthrop must keep for years has to be
+          # downloaded and stored somewhere of their own choosing.
+          retention-days: 90
+          if-no-files-found: error

@@ -1,0 +1,71 @@
+# Keeps the Supabase project awake.
+#
+# A free Supabase project pauses after seven days without database
+# activity. Waking it is manual, and nobody finds out it is asleep until
+# somebody tries to sign in — most likely the morning the whole team is
+# trying to clock in.
+#
+# This calls public.heartbeat() (migration 0003), which returns the
+# server time and nothing else. It uses the publishable key, not the
+# service_role key: the largest privilege in the system should not be
+# sitting in CI to run `select now()`.
+#
+# Secrets required, in Settings -> Secrets and variables -> Actions:
+#   SUPABASE_URL       https://<project-ref>.supabase.co
+#   SUPABASE_ANON_KEY  the publishable (or legacy anon) key
+#
+# Both are public values that already ship inside the browser bundle.
+# They are secrets here only to keep the project reference out of logs.
+
+name: Keep-alive
+
+on:
+  schedule:
+    # 06:00 UTC (07:00 Lagos) every second day. Well inside the seven-day
+    # window, so a single failed run is not a problem.
+    - cron: '0 6 */2 * *'
+  # Lets someone prove it works without waiting two days.
+  workflow_dispatch:
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    name: Touch the database
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Call heartbeat()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${SUPABASE_URL:-}" ] || [ -z "${SUPABASE_ANON_KEY:-}" ]; then
+            echo "::error::SUPABASE_URL and SUPABASE_ANON_KEY must be set as repository secrets."
+            exit 1
+          fi
+
+          # --fail-with-body so a non-2xx is a failure AND the reason is
+          # printed, rather than a silent green tick on a broken project.
+          response=$(curl --silent --show-error --fail-with-body \
+            --max-time 30 \
+            --retry 3 --retry-delay 10 --retry-all-errors \
+            -X POST "${SUPABASE_URL}/rest/v1/rpc/heartbeat" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+            -H "Content-Type: application/json" \
+            -d '{}')
+
+          echo "Database answered: ${response}"
+
+          # An empty body would mean the call succeeded without reaching
+          # Postgres, which would defeat the point of the whole workflow.
+          if [ -z "${response}" ] || [ "${response}" = "null" ]; then
+            echo "::error::heartbeat() returned nothing. The project may be paused, or migration 0003 has not been run."
+            exit 1
+          fi
