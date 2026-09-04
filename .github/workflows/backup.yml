@@ -51,7 +51,9 @@ jobs:
 
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        # v5: v4 still targets Node 20, which GitHub has deprecated and now
+        # force-runs on Node 24. It works today and will stop working.
+        uses: actions/checkout@v5
 
       - name: Install the Supabase CLI
         # Used rather than the runner's own pg_dump, whose version has to
@@ -113,7 +115,7 @@ jobs:
             || { echo "::error::The schema dump has no attendance_records table. It is not a dump of this database."; exit 1; }
 
       - name: Keep it
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: anthrop-hrms-backup-${{ env.STAMP }}
           path: backup/
