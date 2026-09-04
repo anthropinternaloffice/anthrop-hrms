@@ -96,6 +96,43 @@ an artifact taken *before* that date, you will hit them:
 
 ### 4. Check the data is really there
 
+**The one-minute version.** Run this on the throwaway project and on the live one, and
+compare the two rows. It answers every question in steps 4 and 5 at once, which is why it is
+first — an administrator mid-incident should not have to run five queries to find out whether
+the restore worked.
+
+```sql
+select (select count(*) from public.tenants)             as tenants,
+       (select count(*) from public.people)              as people,
+       (select count(*) from public.departments)         as depts,
+       (select count(*) from public.job_titles)          as titles,
+       (select count(*) from public.profiles)            as profiles,
+       (select count(*) from public.employments)         as employments,
+       (select count(*) from public.documents)           as docs,
+       (select count(*) from public.emergency_contacts)  as emerg,
+       (select count(*) from public.attendance_records)  as attend,
+       (select count(*) from public.audit_log)           as audit,
+       (select count(*) from pg_tables
+          where schemaname = 'public' and rowsecurity)    as rls_on,
+       (select count(*) from pg_tables
+          where schemaname = 'public' and not rowsecurity) as rls_off,
+       (select count(*) from pg_policies
+          where schemaname = 'public')                    as policies,
+       (select count(*) from auth.users)                  as auth_users,
+       (select count(*) from storage.objects)             as stor_obj;
+```
+
+`rls_off` must be **zero**. Not "small" — zero. Any table in `public` without row-level
+security is one where every tenant can read every other tenant's rows, and a restore that
+brings the data back without the policies is a leak wearing the costume of a recovery.
+
+As of 2026-09-04 the live project answers: 1, 2, 2, 2, 1, 1, 1, 0, 1, 41 — then **10** tables
+with RLS, **0** without, **30** policies, 1 auth user, 1 storage object. Your numbers will
+have grown; the shape is what matters.
+
+The rest of this section is the longer form, worth running when you have time rather than an
+incident.
+
 Run this on the throwaway project:
 
 ```sql
@@ -194,3 +231,4 @@ Add a line each time. Empty until the first test is run.
 |---|---|---|---|
 | 2026-09-04 | `anthrop-hrms-backup-2026-09-04T10-45-07Z` | Inspected only | Contents verified against the live database: 10 tables, 30 policies, 52 data rows, correction trail intact. |
 | 2026-09-04 | same artifact | **No — restore FAILED** | Roles: permission denied on a `GRANT SET ON PARAMETER` line. Schema: restored cleanly. **Data: would not load at all** — the dump used `COPY ... FROM stdin`, which the SQL editor cannot execute. The data was never at risk, but the documented restore path did not work. Both causes fixed in `backup.yml`; needs re-testing with a fresh artifact. |
+| 2026-09-04 | `anthrop-hrms-backup-2026-09-04T12-10-02Z` | **Yes — restore PASSED** | First clean end-to-end restore into a throwaway project. All three files ran in the SQL editor with no errors. 52 rows across the ten public tables, 10 tables with RLS on and 0 without, 30 policies, 1 auth user, 1 storage object — all matching live. Throwaway project deleted afterwards. |
