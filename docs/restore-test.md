@@ -79,8 +79,20 @@ Order is not optional. The schema grants privileges to roles, so the roles must 
 the data references tables, so the schema must exist before it.
 
 **Expect some noise.** Roles like `anon` and `authenticated` already exist in a new Supabase
-project, so `00-roles.sql` will report that some already exist. That is fine. What is not
+project, so `00-roles.sql` may report that some already exist. That is fine. What is not
 fine is an error mentioning a *table*, a *policy* or a *constraint* — write those down.
+
+**Two failures found on 2026-09-04, both since fixed in the workflow.** If you are restoring
+an artifact taken *before* that date, you will hit them:
+
+- `00-roles.sql` stops with **permission denied** on a
+  `GRANT SET ON PARAMETER "log_min_messages"` line. Delete that line and re-run. Backups
+  taken after the fix have it stripped already.
+- `02-data.sql` fails with **`syntax error at or near "\"`**. That dump used
+  `COPY ... FROM stdin`, whose terminator is a psql client command rather than SQL, so the
+  SQL editor cannot run it at all. Such a file can only be loaded with `psql`:
+  `psql "<session pooler connection string>" -f 02-data.sql`. Backups taken after the fix
+  use `INSERT` statements and paste straight in.
 
 ### 4. Check the data is really there
 
@@ -180,4 +192,5 @@ Add a line each time. Empty until the first test is run.
 
 | Date | Backup used | Counts matched? | Notes |
 |---|---|---|---|
-| 2026-09-04 | `anthrop-hrms-backup-2026-09-04T10-45-07Z` | Not run as a restore — artifact inspected only | Contents verified against the live database: 10 tables, 30 policies, 52 data rows, correction trail intact. A real restore into a throwaway project has **still not been done**. |
+| 2026-09-04 | `anthrop-hrms-backup-2026-09-04T10-45-07Z` | Inspected only | Contents verified against the live database: 10 tables, 30 policies, 52 data rows, correction trail intact. |
+| 2026-09-04 | same artifact | **No — restore FAILED** | Roles: permission denied on a `GRANT SET ON PARAMETER` line. Schema: restored cleanly. **Data: would not load at all** — the dump used `COPY ... FROM stdin`, which the SQL editor cannot execute. The data was never at risk, but the documented restore path did not work. Both causes fixed in `backup.yml`; needs re-testing with a fresh artifact. |

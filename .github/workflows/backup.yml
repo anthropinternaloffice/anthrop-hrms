@@ -82,7 +82,18 @@ jobs:
           # Three files, because they are restored in this order and
           # separating them makes that obvious.
           supabase db dump --db-url "$SUPABASE_DB_URL" -f "backup/01-schema.sql"
-          supabase db dump --db-url "$SUPABASE_DB_URL" --data-only --use-copy -f "backup/02-data.sql"
+          # NOT --use-copy. That produces `COPY ... FROM stdin` blocks
+          # terminated by a backslash-dot, which is a psql client
+          # meta-command and not SQL at all. The Supabase SQL editor sends
+          # plain SQL, so it reaches that line and fails with a syntax
+          # error — meaning the dump could only ever be restored by
+          # somebody with psql installed and configured.
+          #
+          # The restore test on 2026-09-04 hit exactly that and could not
+          # load the data. INSERT statements are bulkier and slower, and
+          # they paste straight into the dashboard, which is what a person
+          # doing an emergency restore will actually have to hand.
+          supabase db dump --db-url "$SUPABASE_DB_URL" --data-only -f "backup/02-data.sql"
           # Roles are dumped for completeness. Verified 2026-09-04: this
           # file is tiny and contains no CREATE ROLE — anon, authenticated
           # and authenticator already exist in every Supabase project. It
@@ -90,6 +101,14 @@ jobs:
           # restore should reproduce those too, not because anything
           # breaks without it.
           supabase db dump --db-url "$SUPABASE_DB_URL" --role-only -f "backup/00-roles.sql"
+
+          # pg_dump emits a GRANT on a database parameter that the
+          # `postgres` role of a fresh project is not permitted to make,
+          # so the file stops there with "permission denied" and the rest
+          # of it never runs. It has nothing to do with this application
+          # and removing it costs nothing. Found by the restore test on
+          # 2026-09-04.
+          sed -i '/GRANT SET ON PARAMETER/d' backup/00-roles.sql
 
           {
             echo "Anthrop HRMS database backup"
@@ -118,6 +137,17 @@ jobs:
           done
           grep -q "attendance_records" backup/01-schema.sql \
             || { echo "::error::The schema dump has no attendance_records table. It is not a dump of this database."; exit 1; }
+
+          # The data must be INSERT statements, not COPY. A COPY dump
+          # cannot be restored through the Supabase SQL editor, which is
+          # the procedure docs/restore-test.md tells people to follow.
+          # This check exists because that exact regression shipped once.
+          if grep -q "FROM stdin" backup/02-data.sql; then
+            echo "::error::02-data.sql uses COPY ... FROM stdin, which cannot be restored via the Supabase SQL editor. Remove --use-copy from the dump command."
+            exit 1
+          fi
+          grep -q "^INSERT INTO" backup/02-data.sql \
+            || { echo "::error::02-data.sql contains no INSERT statements. A restore would load nothing."; exit 1; }
 
       - name: Keep it
         uses: actions/upload-artifact@v5
