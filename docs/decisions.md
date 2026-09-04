@@ -261,3 +261,44 @@ where the browser currently is.
 
 `VITE_SITE_URL` survives as an optional override for the single case the browser cannot see:
 serving from behind a proxy on a different public address. It should normally be unset.
+
+---
+
+## D12 — The backup is dumped as INSERT statements, not COPY
+
+**Date:** 2026-09-04
+**Status:** Fixed at the first restore test. Supersedes the `--use-copy` flag used in Task 14.
+
+`pg_dump` can write table data two ways. `COPY ... FROM stdin` is the faster and more
+compact one, and it is what `supabase db dump --use-copy` produces. It is also the wrong
+one here.
+
+A `COPY` block is terminated by a line containing `\.`, which is a **psql client
+meta-command, not SQL**. Anything that speaks plain SQL to the server — the Supabase SQL
+editor included — reaches that line and stops with `syntax error at or near "\"`. The dump
+was therefore restorable only by somebody with `psql` installed and configured against the
+right connection string.
+
+`docs/restore-test.md` tells the reader to paste the files into the SQL editor, because the
+person doing this is an administrator in a browser during an incident, quite possibly not
+the person who built the system and quite possibly on a borrowed laptop. **The restore
+procedure has to work for the people who will actually run it**, and dump efficiency is
+worth nothing measured against that.
+
+The cost is real and accepted: `INSERT` dumps are bulkier and slower to load. At this
+data volume the difference is seconds, and it would take an enormous database before it
+outweighed being able to restore at all.
+
+Two guards were added with it, both in `.github/workflows/backup.yml`:
+
+- The run **fails** if `FROM stdin` appears in the data file, or if the file contains no
+  `INSERT` statements. This regression shipped once and passed every check we had,
+  including a by-hand inspection of the artifact.
+- `GRANT SET ON PARAMETER` lines are stripped from the roles file. `pg_dump` emits a grant
+  on a database parameter that the `postgres` role of a fresh project may not make, so the
+  file died on its first real statement with "permission denied" and nothing after it ran.
+
+**The wider point, recorded because it was expensive to learn:** the artifact passed every
+automated check and a manual inspection, and was still unrestorable. Inspecting a backup
+and restoring one are different activities, and only the second tells you anything. See the
+log at the bottom of `docs/restore-test.md`.
