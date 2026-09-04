@@ -15,10 +15,11 @@
 # collaborators who should not see staff data, this workflow has to move
 # somewhere with tighter access before that happens.
 #
-# The dump does NOT include the files in Storage — employee documents
-# live in the bucket, not in Postgres. Restoring this gives you every
-# record of a document and none of the documents. That gap is real and
-# is written down in docs/restore-test.md.
+# Verified 2026-09-04 by opening a real artifact. It DOES include
+# auth.users with password hashes, and storage bucket and object
+# metadata. It does NOT include the document files themselves — those
+# bytes live in S3, not Postgres — so a restore lists files it cannot
+# serve. Both facts are written up in docs/restore-test.md.
 #
 # Secrets required, in Settings -> Secrets and variables -> Actions:
 #   SUPABASE_DB_URL   the Session pooler connection string, including
@@ -82,8 +83,12 @@ jobs:
           # separating them makes that obvious.
           supabase db dump --db-url "$SUPABASE_DB_URL" -f "backup/01-schema.sql"
           supabase db dump --db-url "$SUPABASE_DB_URL" --data-only --use-copy -f "backup/02-data.sql"
-          # Roles are dumped too: without them a restore fails on the
-          # GRANTs to anon and authenticated that every policy depends on.
+          # Roles are dumped for completeness. Verified 2026-09-04: this
+          # file is tiny and contains no CREATE ROLE — anon, authenticated
+          # and authenticator already exist in every Supabase project. It
+          # carries only a few statement_timeout settings. Kept because a
+          # restore should reproduce those too, not because anything
+          # breaks without it.
           supabase db dump --db-url "$SUPABASE_DB_URL" --role-only -f "backup/00-roles.sql"
 
           {
