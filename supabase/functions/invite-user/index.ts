@@ -136,16 +136,6 @@ function meansAlreadyRegistered(error: { message?: string; code?: string } | nul
   return text.includes('already been registered') || text.includes('already exists')
 }
 
-interface AdminClient {
-  auth: {
-    admin: {
-      inviteUserByEmail: SupabaseClient['auth']['admin']['inviteUserByEmail']
-      generateLink: SupabaseClient['auth']['admin']['generateLink']
-      deleteUser: SupabaseClient['auth']['admin']['deleteUser']
-    }
-  }
-}
-
 interface InviteOutcome {
   userId: string
   /** False when Supabase could not send the email and we have a link instead. */
@@ -171,7 +161,7 @@ interface InviteOutcome {
  * It is the same single-use, expiring link the email would have carried.
  */
 async function createInvitation(
-  admin: AdminClient,
+  admin: SupabaseClient,
   email: string,
   redirectTo: string,
 ): Promise<InviteOutcome | string> {
@@ -269,7 +259,7 @@ Deno.serve(async (req: Request) => {
   // The service_role key. Used for the next call and nothing else.
   const admin = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
-  }) as unknown as AdminClient
+  })
 
   const outcome = await createInvitation(admin, parsed.email, parsed.redirectTo)
   if (typeof outcome === 'string') return fail(outcome, 400)
