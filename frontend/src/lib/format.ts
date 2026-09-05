@@ -113,14 +113,84 @@ export function formatDate(value: string | null | undefined): string {
  */
 export const DISPLAY_TIME_ZONE = 'Africa/Lagos'
 
-/** 08:32 */
+/**
+ * 8:32 AM. The only place a time is turned into words.
+ *
+ * Twelve-hour, because that is how Anthrop's staff read a clock: 1pm,
+ * not 13:00. Display only — nothing stored, compared, sorted or
+ * exported goes through here. Attendance records hold instants, and the
+ * database is still the only thing that decides what o'clock it is
+ * (rule 8).
+ *
+ * `hour: 'numeric'` rather than `'2-digit'`: 1:00 PM, not 01:00 PM. The
+ * leading zero is a 24-hour habit and reads as a typo on a 12-hour
+ * clock.
+ *
+ * The locale is 'en-US' for one reason only — it is the one that renders
+ * the suffix as "AM"/"PM" rather than "am"/"pm". Nothing else about US
+ * conventions is wanted here, and nothing else leaks in: only the hour
+ * and minute are asked for, and the timezone stays Lagos. Dates are
+ * formatted separately and stay British-long (4 September 2026), because
+ * 04/09/26 means two different days depending on who is reading it.
+ */
 export function formatTime(iso: string | null | undefined): string {
   if (isMissing(iso)) return NOT_STATED
-  return new Date(iso as string).toLocaleTimeString('en-GB', {
-    hour: '2-digit',
+
+  const formatted = new Date(iso as string).toLocaleTimeString('en-US', {
+    hour: 'numeric',
     minute: '2-digit',
+    hour12: true,
     timeZone: DISPLAY_TIME_ZONE,
   })
+
+  // Recent versions of ICU put a narrow no-break space (U+202F) before
+  // AM/PM, older ones use an ordinary space. Both are invisible to a
+  // reader and different to everything else — a string comparison in a
+  // test, a CSV cell, a search. Normalise so the output does not depend
+  // on which browser build somebody happens to be running.
+  return formatted.replace(/\u202f/g, ' ')
+}
+
+/**
+ * A wall-clock string — `YYYY-MM-DDTHH:mm`, what a `datetime-local`
+ * input holds — read back in words: "2 September 2026, 1:00 PM".
+ *
+ * This exists for one stubborn corner of Task 3. A `datetime-local`
+ * input's *value* is fixed by the HTML specification as 24-hour, and its
+ * *widget* is drawn by the browser in the device's own locale. Neither
+ * is ours to change, so on a phone set to en-GB the correction screen
+ * will still show a 24-hour picker no matter what this codebase does.
+ *
+ * What can be done is make sure the 24-hour picker is never the only
+ * reading available: the screen echoes back, in words, the time the
+ * person has actually entered. That also catches the mistake this dialog
+ * is most likely to produce — 08:00 typed when 20:00 was meant.
+ *
+ * The string is parsed by hand rather than through `new Date()`. It has
+ * no timezone in it and already *is* Lagos time; handing it to the Date
+ * constructor would have the browser interpret it in the device's zone
+ * and shift it by hours.
+ */
+export function formatWallClock(value: string | null | undefined): string {
+  if (isMissing(value)) return NOT_STATED
+
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec((value as string).trim())
+  if (!match) return NOT_STATED
+
+  const [, day, hourText, minute] = match
+  const date = formatDate(day)
+  if (date === NOT_STATED) return NOT_STATED
+
+  const hour = Number(hourText)
+  if (!Number.isInteger(hour) || hour < 0 || hour > 23) return NOT_STATED
+
+  // Midnight is 12 AM and noon is 12 PM. `hour % 12` alone gives zero
+  // for both, which is the classic way a hand-rolled 12-hour clock goes
+  // wrong.
+  const suffix = hour < 12 ? 'AM' : 'PM'
+  const twelve = hour % 12 === 0 ? 12 : hour % 12
+
+  return `${date}, ${twelve}:${minute} ${suffix}`
 }
 
 /** 2 September 2026 */

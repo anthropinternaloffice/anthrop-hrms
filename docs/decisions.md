@@ -520,3 +520,53 @@ and deleting a person deletes the history of what was done to them.
 Genuine erasure — an NDPA data-subject request — is a **Module 12** item with its own reason,
 approval and audit trail. It is deliberately not next to Edit, where a busy administrator
 would meet it on the way to something else.
+
+---
+
+## D16 — The 12-hour clock is one function, and the locale on it is 'en-US' on purpose
+
+*Extension brief, Task 3.*
+
+`formatTime()` in `frontend/src/lib/format.ts` is the only place in the system that turns a
+time into words, and every screen already called it — so Task 3 was one function body. That
+is the whole reason it was one function body, and it should stay that way.
+
+**The locale reads `en-US` and that is not an oversight.** It is the locale that renders the
+suffix as `AM`/`PM` rather than `am`/`pm`. Nothing else about US convention is wanted or
+reachable: only `hour` and `minute` are requested, and `timeZone` stays `Africa/Lagos`. Dates
+are formatted by different functions and stay British-long — `4 September 2026`, never
+`04/09/26`, which means two different days depending on who is reading it.
+
+`hour: 'numeric'`, not `'2-digit'`: `1:00 PM`, not `01:00 PM`. A leading zero is a 24-hour
+habit and reads as a typo on a 12-hour clock.
+
+**The narrow no-break space.** Recent ICU builds put U+202F before AM/PM where older ones use
+an ordinary space. It is invisible to a reader and different to everything else — a string
+comparison, a CSV cell, a search box. `formatTime` normalises it, written as `\u202f` rather
+than the literal character so that an editor or a lint autofix cannot silently remove the
+thing that exists to fix it.
+
+### The corner this does not reach, stated rather than glossed
+
+The attendance correction dialog uses `datetime-local` inputs. Their **value** is fixed by
+the HTML specification as 24-hour, and their **widget** is drawn by the browser in the
+device's own locale. Neither is ours to change: on a phone set to en-GB that picker shows a
+24-hour clock no matter what this codebase does.
+
+So `formatWallClock()` echoes the entered time back in words beneath each input — the
+24-hour picker is never the only reading available. It also catches the mistake this dialog
+is most likely to produce, `08:00` typed when `20:00` was meant.
+
+It parses the string by hand rather than through `new Date()`. That value has no timezone in
+it and already *is* Lagos time; handing it to the Date constructor would have the browser
+read it in the device's zone and shift every correction by however many hours that device is
+out. Anyone tempted to simplify it should read the cases in `format.check.ts` first.
+
+### Why there is a check script
+
+`npm run check:format`, alongside `check:phone`, same reasoning as D-for-phone: no test
+library is named in the brief and adding one is the human's decision, but Node runs
+TypeScript directly. Task 3 makes a claim — no 24-hour time anywhere — that is easy to state
+and easy to break, and the 22 cases hold the shared helper to it. Midnight and noon are in
+there because `hour % 12` gives zero for both, which is how a hand-rolled 12-hour clock
+usually goes wrong.

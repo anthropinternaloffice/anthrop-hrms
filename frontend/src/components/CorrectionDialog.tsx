@@ -12,7 +12,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { formatTime } from '@/lib/format'
+import { formatTime, formatWallClock } from '@/lib/format'
 import { correctRecord } from '@/lib/attendance'
 import type { AttendanceRecord } from '@/lib/types'
 
@@ -121,6 +121,14 @@ export function CorrectionDialog({
               required
               className="h-11 text-base"
             />
+            {/* The picker itself is drawn by the browser in the device's
+                locale, so it may well show 24-hour whatever we do. This
+                line makes sure that is never the only reading — and it
+                catches 08:00 typed for 20:00, which is the mistake this
+                dialog is most likely to produce. */}
+            <p className="text-sm text-quiet" aria-live="polite">
+              {clockIn === '' ? 'No time entered.' : `Reads as ${formatWallClock(clockIn)}`}
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -135,6 +143,11 @@ export function CorrectionDialog({
               disabled={submitting}
               className="h-11 text-base"
             />
+            <p className="text-sm text-quiet" aria-live="polite">
+              {clockOut === ''
+                ? 'Left empty — they are still clocked in.'
+                : `Reads as ${formatWallClock(clockOut)}`}
+            </p>
           </div>
 
           <div className="space-y-2">
