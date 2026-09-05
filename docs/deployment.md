@@ -35,10 +35,17 @@ These are database steps, not Cloudflare ones, and the site will look broken wit
 |---|---|---|
 | Run `database/migrations/0001_module1_core_schema.sql` | Supabase SQL editor | Tables, row-level security, triggers |
 | Run `database/migrations/0002_documents_storage.sql` | Supabase SQL editor | Private document bucket and the download log |
+| Run `database/migrations/0003_heartbeat.sql` | Supabase SQL editor | Gives the keep-alive workflow something to call |
+| Run `database/migrations/0004_user_administration.sql` | Supabase SQL editor | Lockout guards, and the two functions the Users and roles screen needs |
 | Create the Owner's login | Supabase → Authentication → Users → Add user, **Auto Confirm** ticked | Nothing in the application can create the first administrator |
 | Run `database/seed/01_bootstrap_first_owner.sql` | Supabase SQL editor | Creates the organisation and makes that login its Owner |
+| Deploy the `invite-user` function | See below | Without it, nobody can be given an account from inside the application |
 
 Verify each one: every script ends with a query that prints what it created.
+
+0004 ends with two extra checks worth reading rather than skipping: four `correct`/`WRONG`
+lines, and a comparison proving that the two places which decide a Manager's departments
+still agree with each other.
 
 ---
 
@@ -117,6 +124,71 @@ The application sends users to `<the address they are on>/reset-password` from t
 Supabase refuses to redirect anywhere that is not on that allowlist, so a reset link will
 fail silently until the address is added. Keep `http://localhost:5173/reset-password` on the
 list as well while anyone is still developing locally.
+
+---
+
+## The `invite-user` Edge Function
+
+The one piece of this system that is not either a static file or a database. It exists
+because creating a login for somebody else needs the `service_role` key, and that key must
+never reach a browser (rule 6). It lives inside the function instead. See D13 in
+`docs/decisions.md` for why this is not the "backend server" Module 1 rules out.
+
+**Nothing works on the Users and roles screen until this is deployed.** Everything else on it
+— the list, roles, switching accounts off — is ordinary database work and will function; only
+inviting somebody will fail.
+
+### Deploying it
+
+Either way works. The dashboard is fine if you would rather not install anything.
+
+**From the dashboard:** Supabase → Edge Functions → Deploy a new function → name it exactly
+`invite-user`, and paste in the contents of `supabase/functions/invite-user/index.ts`.
+
+**From the command line**, with the [Supabase CLI](https://supabase.com/docs/guides/cli)
+installed:
+
+```
+supabase login
+supabase functions deploy invite-user
+```
+
+`supabase/config.toml` already names the project, so there is no `--project-ref` to remember.
+
+### There is no secret to set
+
+Supabase injects `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` into
+every function on that project automatically. Do not add them by hand, and **do not put the
+`service_role` key anywhere else** — not in Cloudflare, not in `.env.local`, not in GitHub
+Actions.
+
+### Checking it
+
+Sign in as the Owner, open **Users and roles**, and invite an address you can read. Then look
+at the audit log: there should be a new `User account` entry naming **you** as the actor. If
+the actor column is empty, the function is writing the profile with the wrong client and the
+audit trail cannot say who invited whom.
+
+---
+
+## Email, and why invitations may not arrive
+
+Supabase's built-in email service is shared, rate-limited to a handful of messages an hour,
+and the vendor states plainly that it is not intended for production. Invitation and
+password-reset emails will sometimes simply not be delivered.
+
+**Before Anthrop uses this for real staff, configure custom SMTP:** Supabase →
+Project Settings → Authentication → SMTP Settings, using Anthrop's own mail provider. That is
+the fix, and it is a five-minute job that nobody thinks about until an invitation goes
+missing.
+
+Until it is done, the application degrades honestly rather than silently: when the email
+cannot be sent, the account is still created and the invitation link is shown on screen for
+the administrator to pass on themselves. It is the same single-use, expiring link.
+
+**Also add the redirect address to the allowlist** — the invitation link lands on
+`/reset-password`, the same address as a password reset, so if reset already works this needs
+nothing further.
 
 ---
 

@@ -1,0 +1,17 @@
+# Supabase CLI configuration.
+#
+# This project is administered through the dashboard and the SQL editor,
+# not through the CLI — migrations in database/migrations/ are run by
+# hand and are numbered, not timestamped. This file exists for one
+# reason: `supabase functions deploy` needs to know which project it is
+# talking to, and which functions there are.
+#
+# Nothing here changes the database.
+
+project_id = "ittodptsfemnkknlxagb"
+
+[functions.invite-user]
+# The default, stated on purpose. With it, Supabase rejects any call
+# without a valid signed-in token before the function runs at all, and
+# the function's own checks are the second line rather than the first.
+verify_jwt = true

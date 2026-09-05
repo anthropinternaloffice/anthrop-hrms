@@ -86,6 +86,13 @@ info@anthropmanagement.com
 CLAUDE.md                    this file
 docs/decisions.md            decisions taken once and never re-argued
 docs/modules/01-hr-core.md   Module 1 definition of done
+docs/deployment.md           what the human has to do, and in what order
 frontend/                    React + Vite application
 database/migrations/         numbered SQL migrations, append-only
+supabase/functions/          Edge Functions — the only code holding a service_role key
 ```
+
+`supabase/functions/` is not a backend server and is not a licence to add one. It holds a
+single function, `invite-user`, which exists because creating a login for another person
+needs the `service_role` key and rule 6 keeps that key out of the browser. See D13. Anything
+that can be done with a row-level security policy is done with a policy instead.

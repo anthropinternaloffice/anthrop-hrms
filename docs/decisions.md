@@ -302,3 +302,82 @@ Two guards were added with it, both in `.github/workflows/backup.yml`:
 automated check and a manual inspection, and was still unrestorable. Inspecting a backup
 and restoring one are different activities, and only the second tells you anything. See the
 log at the bottom of `docs/restore-test.md`.
+
+---
+
+## D13 — The invitation runs in a Supabase Edge Function
+
+**Date:** 2026-09-05
+**Status:** Fixed at Task 1 of the extension brief. Approved by the human before it was built.
+
+Creating a login for somebody else needs Supabase's admin API, and that needs the
+`service_role` key. Rule 6 says that key never appears in frontend code. Module 1 has no
+backend server. Those three facts have to be reconciled before a Users and Roles screen can
+exist at all, and until they were, Anthrop could not onboard anybody without direct database
+access — which is the whole reason the extension brief exists.
+
+The key lives in `supabase/functions/invite-user/`, which runs on Supabase's own
+infrastructure and is never downloaded by a browser.
+
+**This is not the backend server Module 1 rules out.** There is nothing to provision, patch,
+scale or pay for. It is part of the Supabase project in the same way Storage is, and Storage
+was never counted as a server either. The brief's constraint was about not standing up a
+service to maintain; this does not stand one up.
+
+Two alternatives were put to the human and declined:
+
+- **An invitations table with a link the Owner sends by hand.** No new infrastructure, but it
+  needs Supabase's public sign-up left enabled so the invitee can create their own auth
+  account — reintroducing exactly the sign-up path the Module 1 brief told us to remove — and
+  it turns "receives an email link" into "receives a link somehow".
+- **Leaving account creation in the Supabase dashboard.** Does not clear the blocker.
+
+### The function uses two clients, and that is the point
+
+`service_role` is used for exactly one call: `inviteUserByEmail`. That is the only step no
+policy can express, because the person does not exist yet.
+
+The `profiles` row is then written with a *second* client carrying the inviter's own access
+token. It would have been one line shorter to write it with the admin client, and it would
+have been wrong:
+
+- row-level security still applies (`profiles_write_owner_hr`);
+- `app.guard_role_assignment()` still applies, so the **database** is what stops an HR user
+  handing out an Owner role, not the TypeScript above it;
+- `auth.uid()` is the inviter, so `app.audit_row()` records **who** invited them.
+
+That last one decides it. The brief requires every invite to reach the audit log, and an
+entry written by `service_role` has a null actor — it says the database did it. An audit log
+whose "who" column cannot name a person is not an audit log.
+
+### When the email does not arrive
+
+A Supabase project on the free plan sends a handful of emails an hour through a shared
+service the vendor states is not for production use. Invitation emails **will** sometimes not
+arrive until Anthrop configures their own SMTP.
+
+The function therefore falls back: if the email cannot be sent, it generates the same
+single-use, expiring link and returns it, and the screen shows it to the administrator who
+just asked for it, saying plainly that it was not sent. The account exists either way;
+refusing to show the link would leave an account nobody can reach and no way to tell.
+
+The link is shown only to the Owner or HR user who created the account, over HTTPS, and it is
+the same link the email would have carried. It is not written to the console (rule 7).
+
+### One rule, written twice, with a check
+
+`app.managed_department_ids()` decides which departments a Manager covers, and the Users and
+Roles screen has to show the same answer for *somebody else* before the role is assigned.
+Migration 0004 adds `public.departments_managed_by(uuid)` rather than refactoring the
+existing function to serve both.
+
+That is a deliberate acceptance of duplication. `app.managed_department_ids()` is called
+inside three row-level security policies — `people_select_manager`,
+`employments_select_manager` and `attendance_select_manager` — on a database that already
+holds real staff. Rewriting it to gain a tidier call graph would risk every Manager's access
+in exchange for nothing a user can see.
+
+The answer to the duplication is not a promise to be careful. It is the last query in
+`database/migrations/0004_user_administration.sql`, which computes both definitions for every
+profile in the database and prints `DISAGREE - do not ship` if they ever part company. Run it
+after touching either function.

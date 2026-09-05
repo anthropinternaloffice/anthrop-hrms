@@ -23,6 +23,48 @@ export interface Profile {
   personId: string | null
   role: AppRole
   isActive: boolean
+  /**
+   * True when this account's password was chosen by somebody else — an
+   * account made by hand in the Supabase dashboard, which cannot be made
+   * without setting one. The application shows nothing until it is
+   * changed. An invited person never has this: they set their own from
+   * the emailed link, and nobody else ever knew it.
+   */
+  mustChangePassword: boolean
+}
+
+/**
+ * One row of the Users and roles screen.
+ *
+ * Assembled from two sources, because it has to be. The role, the
+ * active flag and the person are on `profiles`, which row-level
+ * security governs. The email address and the sign-in dates are on
+ * `auth.users`, which no policy can reach — those come from
+ * public.list_user_accounts(), which applies the same rule in its own
+ * body.
+ */
+export interface UserAccount {
+  /** The Supabase auth user id, which is also the profile's primary key. */
+  id: string
+  /** Null only if the auth user has been deleted out from under the profile. */
+  email: string | null
+  role: AppRole
+  isActive: boolean
+  mustChangePassword: boolean
+  personId: string | null
+  /** Null when the account is not linked to an employee record. */
+  personName: string | null
+  /** Null when they have never signed in — an invitation not yet taken up. */
+  lastSignInAt: string | null
+  /** When the address was confirmed. Null means the invitation is outstanding. */
+  confirmedAt: string | null
+  invitedAt: string | null
+}
+
+/** A department the Manager role would resolve to for somebody. */
+export interface ManagedDepartment {
+  id: string
+  name: string
 }
 
 export interface Department {

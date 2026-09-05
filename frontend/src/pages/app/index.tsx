@@ -1,18 +1,17 @@
-import { Placeholder } from '@/pages/app/Placeholder'
 import { EmployeeForm } from '@/pages/app/EmployeeForm'
 import { ClockCard } from '@/components/ClockCard'
 
 /**
  * The Module 1 screens.
  *
- * Built: departments and job titles (6), the employee list (7), the
- * profile (8), the add/edit forms (9), documents (10), clocking (11)
- * and the audit log viewer (12).
- * What is left is still an empty page naming the task that fills it in,
- * so the ordering stays visible and nothing gets built out of turn.
+ * The original fourteen tasks: departments and job titles (6), the
+ * employee list (7), the profile (8), the add/edit forms (9), documents
+ * (10), clocking (11) and the audit log viewer (12). Users and roles is
+ * Task 1 of the extension brief and the last placeholder to go.
  */
 
 export { Departments } from '@/pages/app/Departments'
+export { UsersAndRoles } from '@/pages/app/UsersAndRoles'
 export { JobTitles } from '@/pages/app/JobTitles'
 export { Employees } from '@/pages/app/Employees'
 export { Attendance } from '@/pages/app/Attendance'
@@ -44,12 +43,4 @@ export function Home() {
   )
 }
 
-export function UsersAndRoles() {
-  return (
-    <Placeholder
-      title="Users and roles"
-      task="a later task — Owner, HR, Manager and Staff accounts"
-    />
-  )
-}
 

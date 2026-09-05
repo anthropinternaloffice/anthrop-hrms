@@ -40,6 +40,16 @@ interface AuthContextValue {
   initialising: boolean
   /** True while the profile for the current session is being fetched. */
   profileLoading: boolean
+  /**
+   * Re-reads the profile for the signed-in user.
+   *
+   * Needed because one thing on that row changes during a session
+   * without the session itself changing: must_change_password, cleared
+   * the moment the person sets their own password. Without this the
+   * forced-change screen would still be on display over an account that
+   * had already complied.
+   */
+  refreshProfile: () => void
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   requestPasswordReset: (email: string) => Promise<{ error: string | null }>
@@ -80,6 +90,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // session object stops a token refresh from re-fetching it every hour.
   const userId = session?.user.id ?? null
 
+  // Bumped by refreshProfile() to re-run the effect below. A counter
+  // rather than a second copy of the fetch, so there is one code path
+  // that reads a profile and one shape it can leave the state in.
+  const [profileVersion, setProfileVersion] = useState(0)
+  const refreshProfile = useCallback(() => setProfileVersion((n) => n + 1), [])
+
   useEffect(() => {
     if (!userId) {
       setProfile(null)
@@ -96,7 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     supabase
       .from('profiles')
-      .select('id, tenant_id, person_id, role, is_active')
+      .select('id, tenant_id, person_id, role, is_active, must_change_password')
       .eq('id', userId)
       .maybeSingle()
       .then(({ data }) => {
@@ -109,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 personId: (data.person_id as string | null) ?? null,
                 role: data.role as Profile['role'],
                 isActive: data.is_active as boolean,
+                mustChangePassword: data.must_change_password as boolean,
               }
             : null,
         )
@@ -118,7 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       active = false
     }
-  }, [userId])
+  }, [userId, profileVersion])
 
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
@@ -169,6 +186,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile,
       initialising,
       profileLoading,
+      refreshProfile,
       signIn,
       signOut,
       requestPasswordReset,
@@ -179,6 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       profile,
       initialising,
       profileLoading,
+      refreshProfile,
       signIn,
       signOut,
       requestPasswordReset,

@@ -1,6 +1,8 @@
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { MIN_PASSWORD_LENGTH, SetPasswordForm } from '@/components/SetPasswordForm'
 import { useAuth } from '@/lib/auth'
+import { clearPasswordChangeFlag } from '@/lib/users'
 
 /**
  * The route guard. Anything nested under it is closed to the logged out.
@@ -15,7 +17,8 @@ import { useAuth } from '@/lib/auth'
  * the database, proved in database/tests/.
  */
 export function RequireAuth() {
-  const { session, profile, initialising, profileLoading, signOut } = useAuth()
+  const { session, profile, initialising, profileLoading, signOut, updatePassword, refreshProfile } =
+    useAuth()
   const location = useLocation()
 
   if (initialising || (session && profileLoading)) {
@@ -56,7 +59,71 @@ export function RequireAuth() {
     )
   }
 
+  // Somebody else chose this password, and until that stops being true
+  // there is no honest way to attribute anything this account does. It
+  // blocks every screen rather than nagging from a banner: an audit log
+  // is worth what its "who" column is worth, and a password two people
+  // know is not a who.
+  //
+  // Rendered here rather than redirected to, so there is no window in
+  // which the guard and the route disagree about where this person
+  // should be.
+  if (profile.mustChangePassword) {
+    return (
+      <ChangePasswordFirst
+        onSubmit={async (password) => {
+          const { error } = await updatePassword(password)
+          if (error) return error
+          await clearPasswordChangeFlag()
+          // The profile is what this guard reads. Once it comes back
+          // with the flag cleared, this screen is replaced by the
+          // application — no navigation required.
+          refreshProfile()
+          return null
+        }}
+      />
+    )
+  }
+
   return <Outlet />
+}
+
+/**
+ * The forced change.
+ *
+ * Deliberately offers no way past it except changing the password.
+ * There is no "later", and no sign-out button either — signing out and
+ * back in would land on exactly this screen again, so a control that
+ * looks like an escape and is not would only waste somebody's time.
+ */
+function ChangePasswordFirst({
+  onSubmit,
+}: {
+  onSubmit: (password: string) => Promise<string | null>
+}) {
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-page px-gutter py-12">
+      <div className="w-full max-w-md rounded-card border border-line bg-surface p-gutter sm:p-card">
+        <h1 className="text-xl font-semibold text-ink">Choose your own password</h1>
+        <p className="mt-3 text-sm leading-relaxed text-body">
+          This account&rsquo;s password was set up for you by an administrator, so somebody
+          else knows it. Choose one only you know before going any further — everything you
+          do in Anthrop HR is recorded against this account.
+        </p>
+        <p className="mt-2 text-sm leading-relaxed text-quiet">
+          At least {MIN_PASSWORD_LENGTH} characters, and not one you use anywhere else.
+        </p>
+
+        <div className="mt-6">
+          <SetPasswordForm
+            submitLabel="Save password and continue"
+            busyLabel="Saving…"
+            onSubmit={onSubmit}
+          />
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function AccountNotSetUp({
