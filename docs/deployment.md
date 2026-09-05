@@ -37,6 +37,7 @@ These are database steps, not Cloudflare ones, and the site will look broken wit
 | Run `database/migrations/0002_documents_storage.sql` | Supabase SQL editor | Private document bucket and the download log |
 | Run `database/migrations/0003_heartbeat.sql` | Supabase SQL editor | Gives the keep-alive workflow something to call |
 | Run `database/migrations/0004_user_administration.sql` | Supabase SQL editor | Lockout guards, and the two functions the Users and roles screen needs |
+| Run `database/migrations/0005_revoke_anon_and_fix_download_guard.sql` | Supabase SQL editor | Takes `EXECUTE` away from `anon`, and makes the document-download permission check fail closed. **Not optional** — see D14 |
 | Create the Owner's login | Supabase → Authentication → Users → Add user, **Auto Confirm** ticked | Nothing in the application can create the first administrator |
 | Run `database/seed/01_bootstrap_first_owner.sql` | Supabase SQL editor | Creates the organisation and makes that login its Owner |
 | Deploy the `invite-user` function | See below | Without it, nobody can be given an account from inside the application |

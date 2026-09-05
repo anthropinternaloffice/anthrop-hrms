@@ -381,3 +381,76 @@ The answer to the duplication is not a promise to be careful. It is the last que
 `database/migrations/0004_user_administration.sql`, which computes both definitions for every
 profile in the database and prints `DISAGREE - do not ship` if they ever part company. Run it
 after touching either function.
+
+---
+
+## D14 — On Supabase, `revoke ... from public` does not remove `anon`
+
+**Date:** 2026-09-05
+**Status:** Fixed at migration 0005, after the 0004 verification block failed on the live
+database.
+
+A Supabase project ships with default privileges configured:
+
+```sql
+alter default privileges in schema public
+  grant all on functions to anon, authenticated, service_role;
+```
+
+Every function created in `public` therefore receives an **explicit** `EXECUTE` grant to
+`anon` at the moment it is created — including immediately after a `create or replace`, which
+re-applies them.
+
+`revoke all on function ... from public` removes the `PUBLIC` pseudo-role's default grant.
+That is a different grant. It leaves anon's alone.
+
+The rule, for every function added to `public` from here:
+
+```sql
+revoke all on function public.thing(args) from anon, public;
+grant execute on function public.thing(args) to authenticated;
+```
+
+`revoke ... from anon`, by name. 0001 already did this correctly for tables; 0002 and 0004
+used the weaker idiom for functions and both were wrong. `public.heartbeat()` is the one
+deliberate exception (D-none; see 0003) and 0005's verification treats it as such.
+
+### The defect this uncovered, which was the more serious half
+
+Chasing the failing grant led to `public.log_document_download()`, whose permission check
+**failed open**.
+
+`app.current_tenant_id()` returns NULL for an anonymous caller, for a signed-in caller with
+no profile row, and for a **deactivated** one — the last because that function requires
+`is_active`. The guard read:
+
+```sql
+if not ( v_tenant = app.current_tenant_id() and ( ... ) ) then
+  raise exception 'That document is not available.';
+end if;
+```
+
+With a NULL tenant: `v_tenant = NULL` is NULL, `NULL and (...)` is NULL, `not NULL` is NULL,
+and PL/pgSQL treats NULL in an `IF` as false — so the body is skipped and the exception is
+never raised. Execution reached the audit insert and returned the document's `storage_path`.
+
+It did not hand over the file: the bucket is private and a download still needs a signed URL
+issued under the storage policies. What leaked was the existence of a document id, its
+storage path, and a forged `audit_log` row with a null actor — in a table nobody holds an
+insert grant on. And it held for a deactivated employee for as long as their access token
+stayed valid, contradicting the promise that switching an account off revokes access at once.
+
+**The general rule, which is the part worth keeping: a permission check that evaluates to
+NULL must deny.** In a row-level security policy that happens for free — a `USING` clause
+that returns NULL filters the row out. In PL/pgSQL it does not, and `IF NOT (...)` around a
+comparison to a nullable value is the shape to watch for. Wrap it in `coalesce(..., false)`.
+
+The three functions added in 0004 do their filtering in `WHERE` clauses, so they already fail
+closed. They were checked rather than assumed.
+
+### Why the check existed to catch it
+
+0004's verification block asserted that `anon` could call none of the functions it added. It
+was written as routine defence in depth and it failed on the first real run, on a claim that
+looked too obvious to be worth testing. The same lesson as D12: an assertion nobody has run
+is not a guarantee, and the cheap checks are the ones that catch the expensive things.
