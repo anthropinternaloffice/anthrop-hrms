@@ -35,6 +35,7 @@ interface PersonEmbed {
   first_name: string
   last_name: string
   preferred_name: string | null
+  is_active: boolean
   employments: EmploymentEmbed[]
 }
 
@@ -69,7 +70,7 @@ export async function listEmployees(): Promise<{
   const { data, error } = await supabase
     .from('people')
     .select(
-      `id, first_name, last_name, preferred_name,
+      `id, first_name, last_name, preferred_name, is_active,
        employments(
          id, status, start_date, end_date,
          job_title:job_titles(title),
@@ -99,6 +100,13 @@ export async function listEmployees(): Promise<{
       departmentId: employment?.department?.id ?? null,
       departmentName: employment?.department?.name ?? null,
       status: employment?.status ?? null,
+      // Filtering is not done here. The list hides inactive people by
+      // default, but it does so in the page, after the fetch, so that
+      // "Show inactive" is instant and does not re-query. There are
+      // hundreds of employees at most; this is not a table that needs
+      // pagination yet, and pretending otherwise would add a loading
+      // state to a checkbox.
+      isActive: person.is_active,
     } satisfies EmployeeRow
   })
 

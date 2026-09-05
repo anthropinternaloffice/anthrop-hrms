@@ -454,3 +454,69 @@ closed. They were checked rather than assumed.
 was written as routine defence in depth and it failed on the first real run, on a claim that
 looked too obvious to be worth testing. The same lesson as D12: an assertion nobody has run
 is not a guarantee, and the cheap checks are the ones that catch the expensive things.
+
+---
+
+## D15 — Deactivation is a flag on the person, and the function that sets it is not privileged
+
+*Extension brief, Task 2. Migration `0006_deactivation.sql`.*
+
+### Where "active" lives
+
+Until 0006 a person's activity was inferred from `employments.status`. Making deactivation a
+visible action forced the question of what it actually changes, and the inferred version
+broke on a case that already exists in the live database: **a person with no employment row
+at all.** The employee list supports them deliberately — somebody can be added before anyone
+has recorded what they do — and there is nothing to end, so under an employment-only model
+they could never be taken off the list. Anyone entered by mistake would be permanent.
+
+So the roster flag went on `people` (`is_active`, `deactivation_reason`,
+`deactivated_effective_on`, `deactivated_at`), and ending the employment became a
+*consequence* of deactivating somebody rather than the mechanism. Both writes happen inside
+one function, in one transaction, so a phone that loses signal halfway cannot leave a record
+saying the person has left while their job is still open.
+
+Rejected: a person flag with the employment left untouched. It is the smallest migration and
+it leaves the record asserting two contradictory things — person inactive, employment active
+— with every report written later having to know which one to believe.
+
+### Reactivating does not resurrect the employment
+
+It restores the person to the list and clears the reason and effective date, which described
+a departure that is now over. The old employment stays closed. Somebody returning holds a new
+post from a new date; reviving the old row would invent a start date and an end date nobody
+stated, which is rule 4. The dialog says so before the click rather than leaving it to be
+discovered afterwards.
+
+### `set_person_active` is SECURITY INVOKER, and that is the point
+
+It does nothing the caller could not already do. `people_write_owner_hr` and
+`employments_write_owner_hr` decide who may write, and they keep deciding it inside the
+function. The function exists for **atomicity, not privilege**.
+
+This is D14 applied before the fact. A `SECURITY DEFINER` function has to restate its
+permission check by hand, and 0005 exists because a hand-written check got it wrong in a way
+no policy would have. Here a Manager or Staff caller simply updates zero rows, and the
+`row_count` of zero is what raises "not yours to change" — the policy is the check.
+
+The migration's verification block asserts `prosecdef` is false, for the same reason 0004
+asserted the `anon` grants: it is the claim that looks too obvious to test, and those are the
+ones that turn out to be false.
+
+### The effective date does not schedule anything
+
+It is recorded as a business fact — their last day — and may be in the past or the future.
+Deactivation takes effect immediately, and the dialog says so in a sentence. Nothing in
+Module 1 runs on a timer, and a flag that silently flips on a date nobody is watching would
+be worse than one that is honest about being manual.
+
+### Deletion is still absent, but no longer silent
+
+The fix asked for was discoverability, not erasure. The control is called **Deactivate**, it
+sits beside Edit where somebody goes looking for a way to remove a leaver, and the dialog
+gives the one-sentence reason it is not called Delete: the audit log refers to these records,
+and deleting a person deletes the history of what was done to them.
+
+Genuine erasure — an NDPA data-subject request — is a **Module 12** item with its own reason,
+approval and audit trail. It is deliberately not next to Edit, where a busy administrator
+would meet it on the way to something else.

@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth'
 import { NOT_STATED, formatDate, isMissing, personName } from '@/lib/format'
 import { getEmployeeProfile } from '@/lib/employeeProfile'
 import { EmployeeDocuments } from '@/components/EmployeeDocuments'
+import { InactiveBanner, RosterButton } from '@/components/EmployeeRoster'
 import type { EmployeeProfile, EmploymentDetail } from '@/lib/types'
 
 /**
@@ -122,15 +123,25 @@ export function EmployeeProfile() {
         )}
         </div>
 
+        {/* Deactivate sits beside Edit on purpose. This is where
+            somebody goes looking for a way to remove a leaver, and
+            finding nothing here is what made the system look
+            unfinished. It opens a dialog that requires a reason, so it
+            cannot be triggered by a stray tap. */}
         {canEdit && (
-          <Button asChild variant="outline" className="h-11 w-full shrink-0 sm:w-auto">
-            <Link to={`/app/employees/${person.id}/edit`}>
-              <Pencil className="size-4" aria-hidden="true" />
-              Edit
-            </Link>
-          </Button>
+          <div className="flex w-full shrink-0 flex-col gap-3 sm:w-auto sm:flex-row">
+            <Button asChild variant="outline" className="h-11 w-full sm:w-auto">
+              <Link to={`/app/employees/${person.id}/edit`}>
+                <Pencil className="size-4" aria-hidden="true" />
+                Edit
+              </Link>
+            </Button>
+            <RosterButton person={person} onChanged={() => void load()} />
+          </div>
         )}
       </header>
+
+      <InactiveBanner person={person} />
 
       <Section title="Personal details">
         <Fields>
@@ -231,6 +242,13 @@ function EmploymentEntry({ employment }: { employment: EmploymentDetail }) {
         <Field label="Manager" value={managerLabel(employment)} />
         <Field label="Start date" value={employment.startDate} format={formatDate} />
         <Field label="End date" value={employment.endDate} format={formatDate} />
+        {/* Only for employments that actually ended. "Reason for
+            ending: Not stated" against a current job would read as a
+            question nobody had answered, rather than one that does not
+            apply. */}
+        {employment.status === 'ended' && (
+          <Field label="Reason for ending" value={employment.endReason} />
+        )}
       </Fields>
     </>
   )

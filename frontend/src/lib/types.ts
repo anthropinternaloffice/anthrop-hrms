@@ -121,6 +121,16 @@ export interface EmployeeRow {
   departmentId: string | null
   departmentName: string | null
   status: EmploymentStatus | null
+  /**
+   * Whether they are on the active roster.
+   *
+   * Separate from `status`, which is about a job rather than a person.
+   * Somebody can be active with no employment recorded (added before
+   * anyone said what they do) and somebody can be inactive with an
+   * employment row that still reads "ended" — the two answer different
+   * questions and the list shows the person-level one first.
+   */
+  isActive: boolean
 }
 
 /** Everything on the `people` row, as the profile shows it. */
@@ -138,6 +148,14 @@ export interface PersonDetail {
   city: string | null
   state: string | null
   country: string | null
+  /** On the active roster. False means deactivated, never deleted. */
+  isActive: boolean
+  /** Why they left. Null whenever isActive is true. */
+  deactivationReason: string | null
+  /** Their last day, as a business fact. Null whenever isActive is true. */
+  deactivatedEffectiveOn: string | null
+  /** When the deactivation was recorded, set by the database (rule 8). */
+  deactivatedAt: string | null
 }
 
 /** One job this person has held. */
@@ -148,6 +166,13 @@ export interface EmploymentDetail {
   status: EmploymentStatus
   startDate: string | null
   endDate: string | null
+  /**
+   * Why this employment ended. Recorded against the employment as well
+   * as the person, so the history reads on its own: somebody rehired
+   * later has an active person record and an old row that still has to
+   * be able to say why the first spell finished.
+   */
+  endReason: string | null
   /** Null when no manager is recorded. */
   managerEmploymentId: string | null
   /**

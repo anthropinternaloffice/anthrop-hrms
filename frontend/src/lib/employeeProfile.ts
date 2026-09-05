@@ -28,6 +28,7 @@ interface EmploymentRow {
   status: EmploymentStatus
   start_date: string | null
   end_date: string | null
+  end_reason: string | null
   manager_employment_id: string | null
   job_title: { title: string } | null
   department: { name: string } | null
@@ -49,7 +50,7 @@ export async function getEmployeeProfile(
   const { data: personRow, error: personError } = await supabase
     .from('people')
     .select(
-      'id, first_name, middle_name, last_name, preferred_name, email, phone, date_of_birth, address_line1, address_line2, city, state, country',
+      'id, first_name, middle_name, last_name, preferred_name, email, phone, date_of_birth, address_line1, address_line2, city, state, country, is_active, deactivation_reason, deactivated_effective_on, deactivated_at',
     )
     .eq('id', personId)
     .maybeSingle()
@@ -75,12 +76,16 @@ export async function getEmployeeProfile(
     city: (personRow.city as string | null) ?? null,
     state: (personRow.state as string | null) ?? null,
     country: (personRow.country as string | null) ?? null,
+    isActive: personRow.is_active as boolean,
+    deactivationReason: (personRow.deactivation_reason as string | null) ?? null,
+    deactivatedEffectiveOn: (personRow.deactivated_effective_on as string | null) ?? null,
+    deactivatedAt: (personRow.deactivated_at as string | null) ?? null,
   }
 
   const { data: employmentRows, error: employmentError } = await supabase
     .from('employments')
     .select(
-      `id, status, start_date, end_date, manager_employment_id,
+      `id, status, start_date, end_date, end_reason, manager_employment_id,
        job_title:job_titles(title),
        department:departments(name),
        manager:employments!manager_employment_id(
@@ -101,6 +106,7 @@ export async function getEmployeeProfile(
       status: row.status,
       startDate: row.start_date,
       endDate: row.end_date,
+      endReason: row.end_reason,
       managerEmploymentId: row.manager_employment_id,
       managerName: row.manager?.person
         ? personName({

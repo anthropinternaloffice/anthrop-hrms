@@ -29,6 +29,13 @@ export function Employees() {
 
   const [query, setQuery] = useState('')
   const [department, setDepartment] = useState(ALL_DEPARTMENTS)
+  /**
+   * Off by default, which is the point of the whole task: a departed
+   * employee should not clutter the list of people who work here. On
+   * rather than gone, because they have not been deleted and the
+   * interface should not imply they have.
+   */
+  const [showInactive, setShowInactive] = useState(false)
 
   // `items ?? []` inline would build a new array on every render, which
   // would make both useMemos below recompute every time and memoise
@@ -56,20 +63,24 @@ export function Employees() {
 
   const someoneHasNoDepartment = employees.some((employee) => employee.departmentId === null)
 
+  const inactiveCount = employees.filter((employee) => !employee.isActive).length
+
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return employees.filter((employee) => {
+      const matchesRoster = showInactive || employee.isActive
       const matchesName = needle === '' || employee.searchText.includes(needle)
       const matchesDepartment =
         department === ALL_DEPARTMENTS ||
         (department === NO_DEPARTMENT
           ? employee.departmentId === null
           : employee.departmentId === department)
-      return matchesName && matchesDepartment
+      return matchesRoster && matchesName && matchesDepartment
     })
-  }, [employees, query, department])
+  }, [employees, query, department, showInactive])
 
   const filtering = query.trim() !== '' || department !== ALL_DEPARTMENTS
+  const onRoster = employees.length - inactiveCount
 
   return (
     <div>
@@ -147,19 +158,41 @@ export function Employees() {
         )}
       </div>
 
+      {/* Only offered once there is somebody to show. A checkbox that
+          reveals nothing is a checkbox that makes people wonder what
+          they are missing. */}
+      {inactiveCount > 0 && (
+        <div className="mt-4">
+          <label
+            htmlFor="employee-show-inactive"
+            className="inline-flex cursor-pointer items-center gap-2.5 text-sm text-body"
+          >
+            <input
+              id="employee-show-inactive"
+              type="checkbox"
+              checked={showInactive}
+              onChange={(event) => setShowInactive(event.target.checked)}
+              className="size-4 cursor-pointer rounded-[3px] border-line accent-brand"
+            />
+            Show inactive employees
+            <span className="text-quiet">
+              ({inactiveCount} {inactiveCount === 1 ? 'person' : 'people'})
+            </span>
+          </label>
+        </div>
+      )}
+
       <div className="mt-6">
         {loading && items === null ? (
           <ListLoading />
         ) : employees.length === 0 ? (
           <ListEmpty message="No employee records yet." />
         ) : visible.length === 0 ? (
-          <ListEmpty message="No employees match that search. Try a different name, or clear the department filter." />
+          <ListEmpty message={emptyMessage({ filtering, showInactive, inactiveCount, onRoster })} />
         ) : (
           <>
             <p className="mb-3 text-sm text-quiet" aria-live="polite">
-              {filtering
-                ? `${visible.length} of ${employees.length} shown`
-                : `${employees.length} ${employees.length === 1 ? 'employee' : 'employees'}`}
+              {countLine({ shown: visible.length, filtering, showInactive, inactiveCount, onRoster })}
             </p>
             <EmployeeList employees={visible} />
           </>
@@ -187,6 +220,64 @@ function describeScope(role: string | undefined): string {
   }
 }
 
+interface CountContext {
+  filtering: boolean
+  showInactive: boolean
+  inactiveCount: number
+  onRoster: number
+}
+
+/**
+ * The line above the list.
+ *
+ * It has one job beyond counting: never let somebody believe they are
+ * looking at everybody when they are not. People are hidden here by
+ * default, and a bare "8 employees" over a list with three departed
+ * colleagues missing is the quiet omission rule 4 is about.
+ */
+function countLine({ shown, ...context }: CountContext & { shown: number }): string {
+  const { filtering, showInactive, inactiveCount, onRoster } = context
+
+  if (filtering) {
+    const pool = showInactive ? onRoster + inactiveCount : onRoster
+    return `${shown} of ${pool} shown`
+  }
+
+  if (showInactive) {
+    const total = onRoster + inactiveCount
+    return `${total} ${total === 1 ? 'person' : 'people'}, including ${inactiveCount} inactive`
+  }
+
+  const suffix = inactiveCount > 0 ? `, ${inactiveCount} inactive hidden` : ''
+  return `${onRoster} ${onRoster === 1 ? 'employee' : 'employees'}${suffix}`
+}
+
+/**
+ * What to say when the list comes back empty.
+ *
+ * The case worth writing out: everybody who matches is inactive and
+ * therefore hidden. "No employees match that search" would be false —
+ * they do match, they are just not being shown — and it would send
+ * somebody looking for a departed colleague away believing the record
+ * had been deleted.
+ */
+function emptyMessage(context: CountContext): string {
+  const { filtering, showInactive, inactiveCount, onRoster } = context
+
+  if (!showInactive && inactiveCount > 0) {
+    if (onRoster === 0) {
+      return `Nobody is on the active roster. ${inactiveCount} ${
+        inactiveCount === 1 ? 'person is' : 'people are'
+      } inactive — tick "Show inactive employees" to see them.`
+    }
+    return 'No active employees match that search. They may be inactive — tick "Show inactive employees" to include them.'
+  }
+
+  return filtering
+    ? 'No employees match that search. Try a different name, or clear the department filter.'
+    : 'No employee records yet.'
+}
+
 /**
  * The list.
  *
@@ -212,7 +303,7 @@ function EmployeeList({ employees }: { employees: EmployeeRow[] }) {
               >
                 {employee.name}
               </Link>
-              <StatusBadge status={employee.status} />
+              <StatusBadge employee={employee} />
             </div>
 
             <dl className="mt-3 space-y-1 text-sm">
@@ -262,7 +353,7 @@ function EmployeeList({ employees }: { employees: EmployeeRow[] }) {
                   {employee.departmentName ?? NOT_STATED}
                 </TableCell>
                 <TableCell>
-                  <StatusBadge status={employee.status} />
+                  <StatusBadge employee={employee} />
                 </TableCell>
               </TableRow>
             ))}
@@ -274,14 +365,28 @@ function EmployeeList({ employees }: { employees: EmployeeRow[] }) {
 }
 
 /**
- * Employment status, in three states rather than two.
+ * Status, in four states.
  *
- * "No employment recorded" is not the same as "ended", and showing the
- * second when the first is true would invent a fact about someone's
- * job — rule 4. A person can exist here before anyone has said what
- * they do.
+ * "Inactive" is about the person and outranks the other three, because
+ * it is the answer to the question being asked: are they still here.
+ * Below that, "no employment recorded" is not the same as "ended", and
+ * showing the second when the first is true would invent a fact about
+ * someone's job — rule 4. A person can exist here before anyone has
+ * said what they do.
  */
-function StatusBadge({ status }: { status: EmploymentStatus | null }) {
+function StatusBadge({ employee }: { employee: EmployeeRow }) {
+  if (!employee.isActive) {
+    return (
+      <span className="inline-flex items-center rounded-control border border-line bg-wash-strong px-2 py-0.5 text-xs font-medium text-body">
+        Inactive
+      </span>
+    )
+  }
+
+  return <EmploymentBadge status={employee.status} />
+}
+
+function EmploymentBadge({ status }: { status: EmploymentStatus | null }) {
   if (status === 'active') {
     return (
       <span className="inline-flex items-center rounded-control bg-positive/10 px-2 py-0.5 text-xs font-medium text-positive">
