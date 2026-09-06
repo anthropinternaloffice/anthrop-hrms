@@ -1,6 +1,6 @@
 import type { PostgrestError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { personName } from '@/lib/format'
+import { formatDate, personName } from '@/lib/format'
 import type { AuditAction, AuditEntry, AuditActor } from '@/lib/types'
 
 /**
@@ -136,10 +136,41 @@ export async function listAuditLog(
       // after the fact.
       correctionReason:
         typeof after?.correction_reason === 'string' ? (after.correction_reason as string) : null,
+      exportDetail: row.action === 'export' ? describeExport(after) : null,
     }
   })
 
   return { data: entries, hasMore, error: null }
+}
+
+/**
+ * What an export entry says it took, as a sentence.
+ *
+ * The scope and the date range were written by 0007, which derived them
+ * from the caller's own role and tenant rather than accepting them from
+ * the browser. So this is quoting the database, not the person who
+ * pressed the button.
+ *
+ * `rows_reported` is the exception and is worded as one. The count came
+ * from the browser and nothing could check it, so it says "reported"
+ * rather than stating a number as fact.
+ */
+function describeExport(after: Record<string, unknown> | null): string | null {
+  if (!after) return null
+
+  const scope = typeof after.scope === 'string' ? after.scope : null
+  const from = typeof after.from === 'string' ? after.from : null
+  const to = typeof after.to === 'string' ? after.to : null
+  const format = typeof after.format === 'string' ? after.format.toUpperCase() : null
+  const rows = typeof after.rows_reported === 'number' ? after.rows_reported : null
+
+  const parts: string[] = []
+  if (scope) parts.push(scope)
+  if (from && to) parts.push(`${formatDate(from)} to ${formatDate(to)}`)
+  if (format) parts.push(`as ${format}`)
+  if (rows !== null) parts.push(`${rows} ${rows === 1 ? 'record' : 'records'} reported`)
+
+  return parts.length > 0 ? parts.join(' · ') : null
 }
 
 /**

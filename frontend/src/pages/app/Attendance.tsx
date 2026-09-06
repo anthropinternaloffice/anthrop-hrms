@@ -15,6 +15,7 @@ import {
   listWhoIsInToday,
 } from '@/lib/attendance'
 import { CorrectionDialog } from '@/components/CorrectionDialog'
+import { AttendanceExport } from '@/components/AttendanceExport'
 import type { AttendanceRecord, WhoIsInRow } from '@/lib/types'
 
 /**
@@ -141,6 +142,15 @@ export function Attendance() {
             ))}
           </ul>
         )}
+      </Section>
+
+      {/* Last, deliberately. The screen answers "what happened" before it
+          offers to hand a file of it to somebody. */}
+      <Section
+        title="Export attendance"
+        description="A spreadsheet to work with, or a PDF to file and send."
+      >
+        <AttendanceExport />
       </Section>
 
       {correcting && (

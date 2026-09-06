@@ -98,7 +98,8 @@ export function AuditLog() {
       <div className="max-w-2xl">
         <h1 className="text-2xl font-semibold text-ink">Audit log</h1>
         <p className="mt-2 text-sm leading-relaxed text-body">
-          Every create, change, deletion and document download, written by the database itself.
+          Every create, change, deletion, document download and data export, written by the
+          database itself.
           Nothing here can be edited or removed, including by you. Times are Lagos time.
         </p>
       </div>
@@ -219,6 +220,7 @@ const ACTION_WORDS: Record<AuditEntry['action'], string> = {
   update: 'Changed',
   delete: 'Deleted',
   download: 'Downloaded',
+  export: 'Exported',
 }
 
 function Entry({ entry, actors }: { entry: AuditEntry; actors: AuditActor[] }) {
@@ -249,6 +251,13 @@ function Entry({ entry, actors }: { entry: AuditEntry; actors: AuditActor[] }) {
         <p className="mt-2 text-sm text-quiet">
           Fields changed: {entry.changed.map(humaniseField).join(', ')}
         </p>
+      )}
+
+      {/* An export names no single record, so there is no subject to put
+          in the heading. What it took goes here instead — without it the
+          log would say somebody exported attendance and not what. */}
+      {entry.exportDetail && (
+        <p className="mt-2 text-sm text-quiet">{entry.exportDetail}</p>
       )}
 
       {entry.correctionReason && (

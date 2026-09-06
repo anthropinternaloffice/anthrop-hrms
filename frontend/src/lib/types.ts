@@ -237,8 +237,16 @@ export interface WhoIsInRow {
   departmentName: string | null
 }
 
-/** public.audit_action. 'download' exists because a read leaves no trigger behind. */
-export type AuditAction = 'insert' | 'update' | 'delete' | 'download'
+/**
+ * public.audit_action.
+ *
+ * 'download' and 'export' both exist because a read leaves no trigger
+ * behind and has to log itself. They are kept apart on purpose: one
+ * person taking one document is a different event from somebody taking
+ * a month of everybody's movements, and rendering both as "Downloaded"
+ * makes the second easy to read past.
+ */
+export type AuditAction = 'insert' | 'update' | 'delete' | 'download' | 'export'
 
 /** One line of the audit log, already made readable. */
 export interface AuditEntry {
@@ -254,6 +262,15 @@ export interface AuditEntry {
   /** Which columns an update touched. Empty for inserts, deletes and downloads. */
   changed: string[]
   correctionReason: string | null
+  /**
+   * For an export: what was taken, in words. Null for everything else.
+   *
+   * The brief requires the log to say who exported what range and for
+   * whom. That is only true if it is legible here — a range sitting
+   * unread inside a jsonb column is not an audit trail, it is a place
+   * an audit trail could have been.
+   */
+  exportDetail: string | null
 }
 
 /** Somebody who can appear in the "who" column. */

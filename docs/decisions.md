@@ -570,3 +570,91 @@ TypeScript directly. Task 3 makes a claim — no 24-hour time anywhere — that 
 and easy to break, and the 22 cases hold the shared helper to it. Midnight and noon are in
 there because `hour % 12` gives zero for both, which is how a hand-rolled 12-hour clock
 usually goes wrong.
+
+---
+
+## D17 - The export's audit entry is a precondition, not a receipt
+
+*Extension brief, Task 4. Migration `0007_attendance_export_audit.sql`.*
+
+The order is **fetch, log, then build the file**. If the audit write fails, no file is
+produced and the person is told why.
+
+That is the wrong way round for convenience and the right way round for personnel data.
+Logging afterwards means a crash, a closed tab or a dropped request leaves an export that
+happened and no record of it. Logging first can at worst record an export that was then
+abandoned. An over-recorded log is a far cheaper mistake than an under-recorded one, and the
+brief's reason for the requirement - "exporting personnel data is exactly the action that
+should leave a trace" - only holds if the trace cannot be skipped.
+
+The one deliberate exception: an export that matches **zero rows** is not logged, because no
+file was produced and nothing left the system.
+
+### What is trusted from the browser, and what is not
+
+Trusted, because they are claims about what the person asked for: the date range, the format,
+the row count. The count is recorded as `rows_reported` and rendered as "reported" - it came
+from the browser, nothing could check it, and the log says so rather than stating it as fact.
+
+**Not** trusted, because they are claims about authority: the scope and the department name.
+The scope is derived inside the function from the caller's own role; the department name is
+looked up by id **within the caller's own tenant**, and an id from elsewhere raises rather
+than being written down. A log whose subject line came from the client is a log that can be
+made to say anything.
+
+`log_attendance_export()` is `SECURITY DEFINER` - it has to be, because nobody holds an
+insert grant on `audit_log` - so it carries D14's rule explicitly: the tenant and role checks
+are written as `IS NULL` tests before anything else, not folded into a larger boolean. That
+larger boolean is the exact shape that failed open in 0002.
+
+### 'export' is a new action, not a reuse of 'download'
+
+`audit_action` already carried `download`, added in 0002 for document reads. One person
+taking one file is a different event from somebody taking a month of everybody's movements,
+and an audit log that renders both with the same word makes the second easy to read past
+while skimming the first. The enum gains a value, `ALTER TYPE` sits outside the transaction
+so the "cannot use a new enum value in the transaction that added it" question never arises,
+and the audit screen gained a line rendering the range and scope - a range sitting unread
+inside a `jsonb` column is not an audit trail, it is a place one could have been.
+
+### CSV, not xlsx; jsPDF, not print-to-PDF
+
+Both put to the human, both chosen by them. CSV needs no dependency and opens in Excel; it
+carries **both** a readable duration ("8 hr 43 min") and a decimal `Hours` column, because
+the brief wants totals and no spreadsheet can sum the first. It is written with CRLF endings
+and a UTF-8 BOM - without the BOM Excel reads it as the system codepage and mangles every
+name with a diacritic.
+
+Fields beginning with an equals sign, plus, minus or at-sign are prefixed with an apostrophe.
+Correction reasons are free text typed by an HR user and names come from whatever was entered
+on a record, so this file carries strings this codebase did not choose, and a spreadsheet
+will offer to execute a cell that begins with one of those characters.
+
+jsPDF was chosen over `window.print()` because the brief requires the filename to carry the
+tenant, the range and the generation date, and a print dialog's filename is the browser's to
+decide - iOS Safari ignores it entirely. It is loaded by dynamic `import()`, so it is fetched
+the first time somebody exports and never for anybody who does not: **roughly 650 kB raw,
+about 197 kB gzipped**, in its own chunk. Most of that is `html2canvas` and `dompurify`,
+which jsPDF pulls in for its `.html()` method that this codebase does not call. Stubbing them
+out was considered and rejected - it would save a one-off download on a lazy chunk in
+exchange for a build that breaks quietly on the next jsPDF upgrade.
+
+The PDF puts corrections in a **second table** rather than nine more columns. Fourteen
+columns on A4 is unreadable at any font size that fits, and a corrected record is the
+exception rather than the rule. Nothing the brief asks for is dropped; it is arranged so it
+can be read.
+
+### The one browser-supplied time in the system
+
+`generatedOn` is taken from the device clock and printed on the file. It is safe because
+nothing reads it back: it is a label, never stored and never compared. Rule 8 is about times
+the system will later treat as fact, and the authoritative record of when an export happened
+is `audit_log.occurred_at`, stamped by the database. If the two ever disagree, the audit log
+is right and the paper is wrong.
+
+### Refusing rather than guessing the organisation's name
+
+`getTenantName()` returns null when it cannot be read, and the export refuses instead of
+substituting a plausible name. Rule 4 is usually about a blank field on a screen. Here it
+would be a filename and a document header asserting whose staff these are - and that guess
+travels, because the file gets emailed on to people with no way to check it.
