@@ -58,6 +58,33 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
+/**
+ * The name to greet somebody by.
+ *
+ * Null rather than a placeholder when there is no person record behind
+ * the account — that is a real state, not an error, and the greeting
+ * drops the name instead of inventing one (rule 4).
+ */
+function greetingNameFrom(embedded: unknown): string | null {
+  // PostgREST types an embedded relation as an array even where the
+  // foreign key makes it at most one row, and hands back an object at
+  // runtime. Both shapes are accepted rather than casting one away,
+  // because a cast here would be a silent assumption about a client
+  // library's behaviour on a screen nobody would think to re-test.
+  const person = (Array.isArray(embedded) ? embedded[0] : embedded) as
+    | { first_name?: string | null; preferred_name?: string | null }
+    | null
+    | undefined
+
+  if (!person) return null
+
+  const preferred = person.preferred_name?.trim()
+  if (preferred) return preferred
+
+  const first = person.first_name?.trim()
+  return first || null
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [initialising, setInitialising] = useState(true)
@@ -112,7 +139,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     supabase
       .from('profiles')
-      .select('id, tenant_id, person_id, role, is_active, must_change_password')
+      .select(
+        'id, tenant_id, person_id, role, is_active, must_change_password, person:people(first_name, preferred_name)',
+      )
       .eq('id', userId)
       .maybeSingle()
       .then(({ data }) => {
@@ -126,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 role: data.role as Profile['role'],
                 isActive: data.is_active as boolean,
                 mustChangePassword: data.must_change_password as boolean,
+                greetingName: greetingNameFrom(data.person),
               }
             : null,
         )

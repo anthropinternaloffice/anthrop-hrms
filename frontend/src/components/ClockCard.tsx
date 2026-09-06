@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { LogIn, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
-import { formatDuration, formatTime, formatDayWithWeekday } from '@/lib/format'
+import { formatDuration, formatTime } from '@/lib/format'
 import { clockIn, clockOut, getMyEmployment, getOpenRecord } from '@/lib/attendance'
 import type { ClockableEmployment } from '@/lib/attendance'
 import type { AttendanceRecord } from '@/lib/types'
@@ -115,9 +115,10 @@ export function ClockCard() {
     <Card>
       <div className="flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm text-quiet">{formatDayWithWeekday(new Date().toISOString())}</p>
-
-          <h2 className="mt-1 text-lg font-semibold text-ink">
+          {/* The date used to be repeated here. It is in the greeting
+              directly above now, and saying it twice on one short screen
+              reads as a mistake. */}
+          <h2 className="text-lg font-semibold text-ink">
             {clockedIn ? 'You are clocked in' : 'You are not clocked in'}
           </h2>
 

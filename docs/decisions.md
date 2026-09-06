@@ -751,3 +751,60 @@ silently stops matching, and CRLF mixed with LF. Each of those produces a file t
 fine and imports wrongly, which is the failure a preview can least afford - the preview is
 only worth anything if what it shows is what will happen. `lib/csv.ts` is one pass, no
 dependency, and its behaviour is pinned by the check script.
+
+---
+
+## D19 - The greeting carries a name and nothing else
+
+*Extension brief, Task 6.*
+
+A time-aware greeting, the date, and directly beneath it the clock card that already holds
+the person's status and the one action they came to do. That is the whole of it.
+
+### The absence of a gender column is deliberate, and this is where that is written down
+
+The original request was an animated character matched to the user's gender. It is not built,
+and the reasons belong next to the code so that nobody later reads the missing column as an
+oversight and helpfully adds it.
+
+Collecting a sensitive personal attribute so that a cartoon can match it is a weak purpose
+under Nigeria's Data Protection Act, which expects a stated reason for every field held. It
+also leaves no answer for anybody who has not stated one. And it is off-brand: the character
+was removed from the HRConnex reference on purpose, because Anthrop advises government
+institutions and corporate boards.
+
+If avatars are wanted later, people upload their own photograph. Self-chosen, nothing
+inferred, nothing sensitive stored.
+
+### `greetingName` is the only piece of the person record the session carries
+
+The `profiles` query gained an embed of `first_name` and `preferred_name`, resolved to one
+field. The preferred name wins - somebody who goes by Bola should be greeted as Bola by their
+own HR system - and it is null when the account has no employee record behind it, in which
+case the greeting simply has no name in it rather than saying "Good morning, there".
+
+Nothing else from `people` is carried. A greeting needs a first name; it does not need a date
+of birth, and holding one in the session would put it in memory on every screen for no
+reason.
+
+The embed is read defensively: PostgREST types an embedded relation as an array even where
+the foreign key makes it at most one row, and returns an object at runtime. Both shapes are
+handled rather than one being cast away, because a cast there is a silent assumption about a
+client library on a screen nobody would think to re-test.
+
+### The animation was already in the codebase
+
+`animate-in fade-in-0 slide-in-from-bottom-2 duration-700` - a fade with a small rise, once,
+then finished. The utilities and the `prefers-reduced-motion` guard that clamps them to 1ms
+were written for the Sheet component in Module 1 and needed nothing new. Someone who has told
+their operating system to stop moving things has told this application too, and that is
+handled in CSS rather than by branching in the component and rendering two different trees.
+
+### The boundaries are written out
+
+Morning until noon, afternoon until five, evening after that, read in Lagos and never from
+the device. Written as three plain comparisons rather than folded into an expression, because
+they are a judgement about the Lagos working day that somebody may reasonably want to move.
+
+They are not a policy about anything. No part of this system treats the working day as having
+started or ended, and the greeting says nothing about whether somebody is early or late (D4).

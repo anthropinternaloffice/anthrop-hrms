@@ -31,6 +31,20 @@ export interface Profile {
    * the emailed link, and nobody else ever knew it.
    */
   mustChangePassword: boolean
+  /**
+   * What to call this person on screen, and nothing more.
+   *
+   * The preferred name when they have one, otherwise their first name;
+   * null when the account is not linked to an employee record, in which
+   * case the greeting simply has no name in it. Somebody who goes by
+   * Bola should be greeted as Bola by their own HR system.
+   *
+   * It is the only piece of the person record the session carries. A
+   * greeting needs a first name; it does not need a date of birth, and
+   * holding one here would put it in memory on every screen for no
+   * reason.
+   */
+  greetingName: string | null
 }
 
 /**

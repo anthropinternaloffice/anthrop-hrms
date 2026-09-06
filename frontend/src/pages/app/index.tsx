@@ -1,4 +1,5 @@
 import { EmployeeForm } from '@/pages/app/EmployeeForm'
+import { Greeting } from '@/components/Greeting'
 import { ClockCard } from '@/components/ClockCard'
 
 /**
@@ -38,7 +39,11 @@ export function EmployeeEdit() {
 export function Home() {
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold text-ink">Home</h1>
+      {/* The greeting is the heading. "Home" named the screen; this
+          names the person, and the brief asks for their status and the
+          action they came to do directly beneath it — which is exactly
+          what the clock card already is. */}
+      <Greeting />
       <ClockCard />
     </div>
   )
