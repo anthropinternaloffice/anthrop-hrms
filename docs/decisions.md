@@ -658,3 +658,96 @@ is right and the paper is wrong.
 substituting a plausible name. Rule 4 is usually about a blank field on a screen. Here it
 would be a filename and a document header asserting whose staff these are - and that guess
 travels, because the file gets emailed on to people with no way to check it.
+
+---
+
+## D18 - The import preview is a promise the module graph keeps
+
+*Extension brief, Task 5. Migration `0008_employee_import_audit.sql`.*
+
+"Nothing is written until the person confirms the preview."
+
+That is enforced structurally rather than by discipline. `employeeImportPlan.ts` holds the
+planner and **cannot reach the database**: it has no Supabase import, and the only thing it
+borrows from the write path is a type, which is erased at compile time. `employeeImport.ts`
+holds the reads and the writes. A future change that tried to write during planning would
+have to add an import to do it, which is a visible thing to do in review.
+
+The split also makes the planner runnable without a database, which is what
+`npm run check:import` depends on - 29 checks, including the brief's own finish condition.
+
+### All the errors, not the first one
+
+A validator that stops at the first problem makes somebody upload the same file four times to
+find four mistakes, and that is the difference between a feature people use and one they
+abandon. Every row accumulates a list of reasons, and every row is reported.
+
+### An empty cell means "the spreadsheet does not say", never "make this blank"
+
+This is the safety of the whole feature. A file carrying three columns must not erase the
+twelve it omits; somebody importing a phone list must not silently strip everybody's address.
+So `updateEmployee()` from `employeeWrite.ts` is deliberately **not** reused here. That
+function writes every column, which is right for a form where every field was on screen and
+wrong for a spreadsheet. The import computes an explicit list of changed fields, shows it,
+and writes only those columns.
+
+Passing a null employment id to `updateEmployee()` would also have *inserted* an employment
+rather than amending one, so re-importing the same file twice would give everybody two jobs.
+The planner resolves the open employment and the writer amends it.
+
+A row that matches an existing person and changes nothing is its own outcome - "already
+matches" - rather than an update with an empty list. Counting it as an update would overstate
+what the import did to somebody re-uploading a corrected file.
+
+### Dates are refused, not guessed
+
+Only `yyyy-mm-dd` is accepted. `04/09/1990` is the fourth of September to the person who
+typed it in Lagos and the ninth of April to most parsers, and a date of birth silently wrong
+by five months is exactly the corruption rule 4 exists to prevent. Better to make somebody
+reformat a column than to be confidently wrong about when they were born.
+
+### Duplicates, and what counts as certain
+
+An email address that already exists is a definite match and updates that person. Anything
+softer - the same name, no email - is put in front of a human alongside the record it
+resembles, and **defaults to being skipped**. Two people can share a name, and merging two
+who turn out to be different is not something anybody can undo from the interface.
+
+A repeated email address *within one file* is treated as an error rather than a decision:
+the same address cannot belong to two people, and importing both would create the duplicate
+the feature exists to avoid.
+
+### The template has no example row
+
+Headings only. An example row is a row somebody forgets to delete, and it imports as a
+person - the cheapest possible way for this feature to put a fictional employee into a real
+HR system. The worked example lives on the screen, where it cannot be uploaded.
+
+### Unknown departments and job titles
+
+Collected and shown, never invented. A misspelling and a genuinely new department are
+indistinguishable from here, and only the person reading the preview knows which it is. Until
+they choose, rows naming an unknown department cannot import; choosing to create them clears
+those rows, and the names are still listed so nothing is created quietly.
+
+### Why the summary is logged afterwards, when an export is logged first
+
+D17 argued that an export must be logged *before* the file is produced, because a read fires
+no trigger and an interrupted export would leave no trace at all.
+
+An import is the opposite case. Every row it writes has already written its own audit entry
+through the triggers on `people` and `employments` by the time the summary is due, so an
+import that dies halfway is still recorded in full, person by person. The summary is a cover
+note, and it cannot honestly be written before the work it describes. The failure modes are
+not symmetrical: a crashed export would be invisible, whereas a crashed import is visible in
+detail and merely missing its heading.
+
+### CSV parsing is written out rather than pulled in
+
+Writing a CSV is easy; reading one is where the trouble is, and the file arrives from
+somebody else's spreadsheet. Quoted commas, line breaks inside cells from Alt+Enter, doubled
+quotes, a BOM that would otherwise become part of the first heading so that "First name"
+silently stops matching, and CRLF mixed with LF. Each of those produces a file that looks
+fine and imports wrongly, which is the failure a preview can least afford - the preview is
+only worth anything if what it shows is what will happen. `lib/csv.ts` is one pass, no
+dependency, and its behaviour is pinned by the check script.

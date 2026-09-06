@@ -17,6 +17,7 @@ export { Employees } from '@/pages/app/Employees'
 export { Attendance } from '@/pages/app/Attendance'
 export { AuditLog } from '@/pages/app/AuditLog'
 export { EmployeeProfile } from '@/pages/app/EmployeeProfile'
+export { ImportEmployees } from '@/pages/app/ImportEmployees'
 
 export function EmployeeNew() {
   return <EmployeeForm mode="create" />

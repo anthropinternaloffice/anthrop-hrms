@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Plus, Search } from 'lucide-react'
+import { Plus, Search, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -93,12 +93,20 @@ export function Employees() {
         {/* Only the roles that can actually write see this. Row-level
             security is what enforces it. */}
         {(profile?.role === 'owner' || profile?.role === 'hr') && (
-          <Button asChild className="h-11 w-full shrink-0 sm:w-auto">
-            <Link to="/app/employees/new">
-              <Plus className="size-4" aria-hidden="true" />
-              Add employee
-            </Link>
-          </Button>
+          <div className="flex w-full shrink-0 flex-col gap-3 sm:w-auto sm:flex-row">
+            <Button asChild variant="outline" className="h-11 w-full sm:w-auto">
+              <Link to="/app/employees/import">
+                <Upload className="size-4" aria-hidden="true" />
+                Import
+              </Link>
+            </Button>
+            <Button asChild className="h-11 w-full sm:w-auto">
+              <Link to="/app/employees/new">
+                <Plus className="size-4" aria-hidden="true" />
+                Add employee
+              </Link>
+            </Button>
+          </div>
         )}
       </div>
 

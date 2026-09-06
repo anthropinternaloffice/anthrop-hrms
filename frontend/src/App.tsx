@@ -16,6 +16,7 @@ import {
   EmployeeProfile,
   Employees,
   Home,
+  ImportEmployees,
   JobTitles,
   UsersAndRoles,
 } from '@/pages/app'
@@ -50,6 +51,9 @@ export function App() {
               <Route index element={<Home />} />
               <Route path="employees" element={<Employees />} />
               <Route path="employees/new" element={<EmployeeNew />} />
+              {/* Before the :personId route, or "import" is read as a
+                  person id and the profile page 404s. */}
+              <Route path="employees/import" element={<ImportEmployees />} />
               <Route path="employees/:personId" element={<EmployeeProfile />} />
               <Route path="employees/:personId/edit" element={<EmployeeEdit />} />
               <Route path="departments" element={<Departments />} />
