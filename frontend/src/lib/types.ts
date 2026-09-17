@@ -259,8 +259,21 @@ export interface WhoIsInRow {
  * person taking one document is a different event from somebody taking
  * a month of everybody's movements, and rendering both as "Downloaded"
  * makes the second easy to read past.
+ *
+ * 'import' and 'resend' are the same idea for two more events no
+ * trigger can catch: the cover note on a bulk import, and an
+ * administrator sending somebody a fresh sign-in link. Both were in the
+ * database before they were in this union — 'import' since migration
+ * 0008 — which is why an import used to render as "undefined".
  */
-export type AuditAction = 'insert' | 'update' | 'delete' | 'download' | 'export'
+export type AuditAction =
+  | 'insert'
+  | 'update'
+  | 'delete'
+  | 'download'
+  | 'export'
+  | 'import'
+  | 'resend'
 
 /** One line of the audit log, already made readable. */
 export interface AuditEntry {
@@ -271,6 +284,18 @@ export interface AuditEntry {
   action: AuditAction
   tableName: string
   recordId: string | null
+  /**
+   * What happened, in the words somebody would use for it.
+   *
+   * Not `action` + table name. Those two say what the database did —
+   * "insert into attendance_records" — and for most tables that is also
+   * what the person did. Attendance is where the two come apart: one
+   * table and two inserts-and-updates carry four different human
+   * events, and a log that renders all of them as "Created attendance
+   * record" is describing its own mechanics rather than the working
+   * day. Derived in auditLog.ts from the row's own snapshot.
+   */
+  headline: string
   /** What the record was called at the time, where the table has a name at all. */
   subject: string | null
   /** Which columns an update touched. Empty for inserts, deletes and downloads. */
@@ -285,6 +310,14 @@ export interface AuditEntry {
    * an audit trail could have been.
    */
   exportDetail: string | null
+  /**
+   * For an import: how many records it created, updated, skipped and
+   * failed, in words. Null for everything else.
+   *
+   * The counts have been in the log since the import was built; without
+   * this they were in the row and nowhere a reader could see them.
+   */
+  importDetail: string | null
 }
 
 /** Somebody who can appear in the "who" column. */

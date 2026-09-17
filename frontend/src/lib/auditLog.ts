@@ -1,21 +1,25 @@
 import type { PostgrestError } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
-import { formatDate, personName } from '@/lib/format'
+import { personName } from '@/lib/format'
+import {
+  changedFields,
+  describeExport,
+  describeImport,
+  describeSubject,
+  headlineFor,
+} from '@/lib/auditNarrative'
 import type { AuditAction, AuditEntry, AuditActor } from '@/lib/types'
 
 /**
- * The audit log.
+ * Reading the audit log.
+ *
+ * The queries. What each row *says* is auditNarrative.ts, which has no
+ * Supabase in it and can therefore be run on its own.
  *
  * Readable by the Owner and nobody else — `audit_log_select_owner` is
  * the only select policy on the table, and there is no insert grant for
  * anyone. Every row here was written by a database trigger, or by
  * public.log_document_download() for reads that no trigger can catch.
- *
- * The label for each entry comes out of the row's own `before`/`after`
- * snapshot rather than from a fresh lookup. That is deliberate: it shows
- * what a thing was called *at the time it happened*, it still works for
- * records that have since been deleted, and it cannot quietly rewrite
- * history when something is renamed.
  */
 
 export interface AuditFilters {
@@ -34,66 +38,6 @@ function lagosDayStart(day: string): string {
 }
 function lagosDayEnd(day: string): string {
   return new Date(`${day}T23:59:59.999+01:00`).toISOString()
-}
-
-/** Fields that are noise in a summary of what changed. */
-const UNINTERESTING = new Set(['updated_at', 'created_at', 'name_tokens'])
-
-function changedFields(before: Record<string, unknown> | null, after: Record<string, unknown> | null): string[] {
-  if (!before || !after) return []
-  return Object.keys(after)
-    .filter((key) => !UNINTERESTING.has(key))
-    .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
-}
-
-/**
- * What the affected record was called.
- *
- * Every table gets its own answer because there is no common "name"
- * column, and a bare UUID tells a reader nothing. Where a table has no
- * natural label — an employment, an attendance record — it says so
- * rather than inventing one.
- */
-function describeSubject(
-  table: string,
-  snapshot: Record<string, unknown> | null,
-): string | null {
-  if (!snapshot) return null
-  const text = (key: string) => {
-    const value = snapshot[key]
-    return typeof value === 'string' && value.trim() !== '' ? value : null
-  }
-
-  switch (table) {
-    case 'people':
-      return [text('first_name'), text('last_name')].filter(Boolean).join(' ') || null
-    case 'departments':
-    case 'tenants':
-    case 'emergency_contacts':
-      return text('name')
-    case 'job_titles':
-      return text('title')
-    case 'documents':
-      return text('original_filename')
-    default:
-      return null
-  }
-}
-
-const TABLE_LABELS: Record<string, string> = {
-  people: 'Employee',
-  departments: 'Department',
-  job_titles: 'Job title',
-  employments: 'Employment',
-  documents: 'Document',
-  emergency_contacts: 'Emergency contact',
-  attendance_records: 'Attendance record',
-  profiles: 'User account',
-  tenants: 'Organisation',
-}
-
-export function tableLabel(table: string): string {
-  return TABLE_LABELS[table] ?? table
 }
 
 export async function listAuditLog(
@@ -129,6 +73,7 @@ export async function listAuditLog(
       action: row.action as AuditAction,
       tableName: row.table_name as string,
       recordId: (row.record_id as string | null) ?? null,
+      headline: headlineFor(row.action as AuditAction, row.table_name as string, before, after),
       subject: describeSubject(row.table_name as string, after ?? before),
       changed: changedFields(before, after),
       // Surfaced on its own because the brief requires a correction's
@@ -137,40 +82,11 @@ export async function listAuditLog(
       correctionReason:
         typeof after?.correction_reason === 'string' ? (after.correction_reason as string) : null,
       exportDetail: row.action === 'export' ? describeExport(after) : null,
+      importDetail: row.action === 'import' ? describeImport(after) : null,
     }
   })
 
   return { data: entries, hasMore, error: null }
-}
-
-/**
- * What an export entry says it took, as a sentence.
- *
- * The scope and the date range were written by 0007, which derived them
- * from the caller's own role and tenant rather than accepting them from
- * the browser. So this is quoting the database, not the person who
- * pressed the button.
- *
- * `rows_reported` is the exception and is worded as one. The count came
- * from the browser and nothing could check it, so it says "reported"
- * rather than stating a number as fact.
- */
-function describeExport(after: Record<string, unknown> | null): string | null {
-  if (!after) return null
-
-  const scope = typeof after.scope === 'string' ? after.scope : null
-  const from = typeof after.from === 'string' ? after.from : null
-  const to = typeof after.to === 'string' ? after.to : null
-  const format = typeof after.format === 'string' ? after.format.toUpperCase() : null
-  const rows = typeof after.rows_reported === 'number' ? after.rows_reported : null
-
-  const parts: string[] = []
-  if (scope) parts.push(scope)
-  if (from && to) parts.push(`${formatDate(from)} to ${formatDate(to)}`)
-  if (format) parts.push(`as ${format}`)
-  if (rows !== null) parts.push(`${rows} ${rows === 1 ? 'record' : 'records'} reported`)
-
-  return parts.length > 0 ? parts.join(' · ') : null
 }
 
 /**

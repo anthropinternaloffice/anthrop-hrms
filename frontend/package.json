@@ -13,7 +13,8 @@
     "preview": "vite preview",
     "check:phone": "node src/lib/phone.check.ts",
     "check:format": "node src/lib/format.check.ts",
-    "check:import": "node src/lib/employeeImportPlan.check.ts"
+    "check:import": "node src/lib/employeeImportPlan.check.ts",
+    "check:audit": "node src/lib/auditNarrative.check.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",

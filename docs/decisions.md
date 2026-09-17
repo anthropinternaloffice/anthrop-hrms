@@ -808,3 +808,51 @@ they are a judgement about the Lagos working day that somebody may reasonably wa
 
 They are not a policy about anything. No part of this system treats the working day as having
 started or ended, and the greeting says nothing about whether somebody is early or late (D4).
+
+---
+
+## D20 — The audit log says what happened, not what the database did
+
+**Date:** 2026-09-17
+
+An Owner watching the log saw `Created attendance record` when somebody clocked in, and
+`Changed attendance record` when they clocked out. Both are accurate descriptions of the SQL
+and neither is what happened. Anthrop asked for the activity.
+
+The heading for each entry is now derived from the row's own `before`/`after` snapshot, in
+`frontend/src/lib/auditNarrative.ts`:
+
+| Row | Heading |
+|---|---|
+| insert on `attendance_records` | Clocked in |
+| `clock_out_at` null → set | Clocked out |
+| `corrected_at` or `correction_reason` moved | Corrected attendance record |
+| any other update | Changed attendance record |
+
+### Nothing is stored and nothing is backfilled
+
+No column was added and no existing row was touched. The distinctions were already in the
+snapshots, unread — so entries written months ago now read correctly too, and the log stays
+what it is: append-only, written by triggers, never edited. Had this been solved by stamping
+a label at write time, every entry already in the table would still be wrong.
+
+### The correction test runs first, and that is the whole subtlety
+
+A correction is allowed to supply a missing clock-out, which looks exactly like a clock-out —
+null becomes a time. Testing for the clock-out first would credit an employee with an action
+HR took on their record. `auditNarrative.check.ts` holds that ordering in place with a case,
+because it is the kind of thing a later refactor reorders without noticing.
+
+### The module was split so it could be checked
+
+`auditLog.ts` keeps the Supabase queries; `auditNarrative.ts` holds the wording and imports
+nothing that needs a browser, a network or a signed-in user. `npm run check:audit` then runs
+it the way `check:format` and `check:import` already run theirs. Same reasoning as D18.
+
+### An import used to render as "undefined"
+
+Found while doing the above. Migration 0008 added `import` to `audit_action`; the union in
+`types.ts` never gained it, so the lookup table missed and the heading came out as the word
+`undefined` — and the counts the migration carefully recorded were displayed nowhere at all.
+Both are fixed, and the fallback now degrades to a word rather than to `undefined` when the
+database knows an action this code does not.

@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select'
 import { useAuth } from '@/lib/auth'
 import { formatDayLong, formatTime, roleLabel } from '@/lib/format'
-import { listActors, listAuditLog, tableLabel } from '@/lib/auditLog'
+import { listActors, listAuditLog } from '@/lib/auditLog'
 import type { AppRole, AuditActor, AuditEntry } from '@/lib/types'
 
 /** Radix Select cannot hold an empty string. */
@@ -98,8 +98,8 @@ export function AuditLog() {
       <div className="max-w-2xl">
         <h1 className="text-2xl font-semibold text-ink">Audit log</h1>
         <p className="mt-2 text-sm leading-relaxed text-body">
-          Every create, change, deletion, document download and data export, written by the
-          database itself.
+          Every create, change, deletion, clock in and out, document download, data export,
+          import and sign-in link, written by the database itself.
           Nothing here can be edited or removed, including by you. Times are Lagos time.
         </p>
       </div>
@@ -215,22 +215,18 @@ export function AuditLog() {
   )
 }
 
-const ACTION_WORDS: Record<AuditEntry['action'], string> = {
-  insert: 'Created',
-  update: 'Changed',
-  delete: 'Deleted',
-  download: 'Downloaded',
-  export: 'Exported',
-}
-
 function Entry({ entry, actors }: { entry: AuditEntry; actors: AuditActor[] }) {
   const actor = actors.find((candidate) => candidate.id === entry.actorUserId)
 
   return (
     <>
       <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        {/* The sentence is built in auditLog.ts, not here. An entry is
+            the same event whether it is read on this screen or anywhere
+            else, and attendance in particular needs the row's own
+            snapshot to say what actually happened. */}
         <p className="font-medium text-ink">
-          {ACTION_WORDS[entry.action]} {tableLabel(entry.tableName).toLowerCase()}
+          {entry.headline}
           {entry.subject && <span className="text-ink">: {entry.subject}</span>}
         </p>
         <p className="tabular text-sm text-quiet">
@@ -258,6 +254,12 @@ function Entry({ entry, actors }: { entry: AuditEntry; actors: AuditActor[] }) {
           log would say somebody exported attendance and not what. */}
       {entry.exportDetail && (
         <p className="mt-2 text-sm text-quiet">{entry.exportDetail}</p>
+      )}
+
+      {/* Same for an import: the summary entry names no one record, and
+          the counts are the only thing that makes it worth having. */}
+      {entry.importDetail && (
+        <p className="mt-2 text-sm text-quiet">{entry.importDetail}</p>
       )}
 
       {entry.correctionReason && (
