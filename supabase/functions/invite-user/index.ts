@@ -1,6 +1,12 @@
 // =====================================================================
 // invite-user
-// Anthrop HRMS — Extension brief, Task 1.
+// Anthrop HRMS — Extension brief, Task 1, plus the resend below.
+//
+// Two jobs, one function: creating a login for somebody, and sending
+// somebody who already has one a fresh link to set their password. They
+// share every line of the authorisation, both need the service_role key,
+// and splitting them would mean two functions to deploy and two places
+// for the role checks to drift apart.
 //
 // Creating a login for somebody else needs Supabase's admin API, and
 // that needs the service_role key. Rule 6 says that key never appears in
@@ -79,19 +85,63 @@ function fail(message: string, status: number): Response {
 }
 
 interface InviteRequest {
+  action: 'invite'
   email: string
   role: Role
   personId: string | null
   redirectTo: string
 }
 
+/**
+ * Send an existing account another sign-in link.
+ *
+ * There is no email address in this request, on purpose. It names an
+ * account, and the address is read from auth.users on this side. A
+ * browser that could supply the address could ask for a colleague's
+ * account to be sent to an address of its own choosing, and the audit
+ * entry would record a perfectly ordinary-looking resend.
+ */
+interface ResendRequest {
+  action: 'resend'
+  userId: string
+  redirectTo: string
+}
+
+type ParsedRequest = InviteRequest | ResendRequest
+
 const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
+/** Where the emailed link lands, checked the same way for both actions. */
+function parseRedirect(body: Record<string, unknown>): string | null {
+  // Supplied by the browser rather than built in, for the reasons in
+  // D11 — and safe for the same reason: Supabase refuses to redirect
+  // anywhere that is not on its own allowlist, so this value only has
+  // to be honest about where the person currently is. The allowlist is
+  // the control.
+  const redirectTo = typeof body.redirectTo === 'string' ? body.redirectTo.trim() : ''
+  return redirectTo.startsWith('http') ? redirectTo : null
+}
+
 /** Reads the request body, or says what is wrong with it. */
-function parseRequest(raw: unknown): InviteRequest | string {
+function parseRequest(raw: unknown): ParsedRequest | string {
   if (typeof raw !== 'object' || raw === null) return 'The request was not understood.'
   const body = raw as Record<string, unknown>
+
+  // Absent means invite. The frontend always sends it; older builds
+  // served from a cache may not, and an invitation is what this function
+  // did before the resend existed.
+  const action = body.action === undefined ? 'invite' : body.action
+  if (action !== 'invite' && action !== 'resend') return 'The request was not understood.'
+
+  const redirect = parseRedirect(body)
+  if (redirect === null) return 'The return address was not understood.'
+
+  if (action === 'resend') {
+    const userId = typeof body.userId === 'string' ? body.userId : ''
+    if (!UUID_SHAPE.test(userId)) return 'That account reference was not understood.'
+    return { action, userId, redirectTo: redirect }
+  }
 
   const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
   if (!EMAIL_SHAPE.test(email)) return 'That does not look like an email address.'
@@ -109,15 +159,13 @@ function parseRequest(raw: unknown): InviteRequest | string {
     return 'The employee record reference was not understood.'
   }
 
-  // Where the emailed link lands. Supplied by the browser rather than
-  // built in, for the reasons in D11 — and safe for the same reason:
-  // Supabase refuses to redirect anywhere that is not on its own
-  // allowlist, so this value only has to be honest about where the
-  // person currently is. The allowlist is the control.
-  const redirectTo = typeof body.redirectTo === 'string' ? body.redirectTo.trim() : ''
-  if (!redirectTo.startsWith('http')) return 'The return address was not understood.'
-
-  return { email, role: role as Role, personId: (personId as string | null) ?? null, redirectTo }
+  return {
+    action,
+    email,
+    role: role as Role,
+    personId: (personId as string | null) ?? null,
+    redirectTo: redirect,
+  }
 }
 
 /**
@@ -202,6 +250,85 @@ async function createInvitation(
   }
 }
 
+/**
+ * The sentences migration 0009 raises, and nothing else.
+ *
+ * A Postgres error can quote the row that caused it, and that row is
+ * somebody's personal data (rule 7). These are ours: written in the
+ * function, addressed to the person reading them, and containing no
+ * data. Anything else gets a generic line.
+ */
+const RESEND_GUARDS = [
+  'Only an Owner or HR can send somebody a sign-in link.',
+  'That account is not in this organisation.',
+  'That account is switched off. Switch it back on before sending a sign-in link.',
+]
+
+/**
+ * Send an existing account another link to set a password.
+ *
+ * The order of the three steps is the whole design.
+ *
+ * 1. Record it, as the caller, through log_sign_in_link_sent(). That
+ *    function re-checks the role and — the part no code here can do —
+ *    that the account belongs to the caller's organisation, because
+ *    step 2 uses the service_role key and no policy applies to it. A
+ *    refusal here means nothing is sent (D17: the entry is a
+ *    precondition, not a receipt).
+ *
+ * 2. Read the address from auth.users, by id. Never from the browser.
+ *
+ * 3. Send. `resetPasswordForEmail` is the ordinary public endpoint,
+ *    called with the anon key — the same call /forgot-password makes —
+ *    because it is the one that actually sends an email. The admin API's
+ *    generateLink() returns a link and sends nothing, so it is the
+ *    fallback rather than the first choice: when the email cannot go
+ *    out, the link is handed back to the administrator who asked for it,
+ *    exactly as an invitation is.
+ *
+ * A recovery link is right for both kinds of recipient. Somebody who
+ * never took up their invitation has an unconfirmed address, and
+ * following a recovery link confirms it on the way through; an invite
+ * link cannot be generated a second time for an account that exists.
+ */
+async function resendSignInLink(
+  admin: SupabaseClient,
+  caller: SupabaseClient,
+  anon: SupabaseClient,
+  userId: string,
+  redirectTo: string,
+): Promise<{ emailSent: boolean; actionLink: string | null } | string> {
+  const { error: logError } = await caller.rpc('log_sign_in_link_sent', { p_user_id: userId })
+
+  if (logError) {
+    const message = logError.message ?? ''
+    const ours = RESEND_GUARDS.find((guard) => message.includes(guard))
+    return ours ?? 'That link could not be sent. Try again, or contact your administrator.'
+  }
+
+  const { data: target, error: lookupError } = await admin.auth.admin.getUserById(userId)
+  const email = target?.user?.email ?? ''
+
+  if (lookupError || email === '') {
+    return 'That account has no email address on it, so there is nowhere to send a link.'
+  }
+
+  const { error: sendError } = await anon.auth.resetPasswordForEmail(email, { redirectTo })
+  if (!sendError) return { emailSent: true, actionLink: null }
+
+  const link = await admin.auth.admin.generateLink({
+    type: 'recovery',
+    email,
+    options: { redirectTo },
+  })
+
+  if (link.error || !link.data?.properties?.action_link) {
+    return 'That link could not be sent. Try again in a few minutes.'
+  }
+
+  return { emailSent: false, actionLink: link.data.properties.action_link }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS })
   if (req.method !== 'POST') return fail('Use POST.', 405)
@@ -209,7 +336,7 @@ Deno.serve(async (req: Request) => {
   const authHeader = req.headers.get('Authorization') ?? ''
   if (!authHeader.startsWith('Bearer ')) return fail('Sign in and try again.', 401)
 
-  let parsed: InviteRequest | string
+  let parsed: ParsedRequest | string
   try {
     parsed = parseRequest(await req.json())
   } catch {
@@ -243,23 +370,44 @@ Deno.serve(async (req: Request) => {
     .eq('id', userData.user.id)
     .maybeSingle()
 
+  // The same two checks for both actions, worded for the one being
+  // asked for — "cannot invite anybody" in answer to a resend reads like
+  // a different refusal than the one that happened.
+  const asked = parsed.action === 'resend' ? 'send somebody a sign-in link' : 'invite somebody'
+
   if (!me || !me.is_active) {
-    return fail('This account cannot invite anybody.', 403)
+    return fail(`This account cannot ${asked}.`, 403)
   }
 
   // Mirrors the database, to produce a sentence instead of a constraint
-  // violation. app.guard_role_assignment() is what enforces it.
+  // violation. app.guard_role_assignment() and, for a resend,
+  // log_sign_in_link_sent() are what enforce it.
   if (me.role !== 'owner' && me.role !== 'hr') {
-    return fail('Only an Owner or HR can invite somebody.', 403)
-  }
-  if (parsed.role !== 'staff' && me.role !== 'owner') {
-    return fail('Only an Owner can invite somebody with a role above Staff.', 403)
+    return fail(`Only an Owner or HR can ${asked}.`, 403)
   }
 
-  // The service_role key. Used for the next call and nothing else.
+  // The service_role key. Used for the admin calls below and nothing
+  // else.
   const admin = createClient(url, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
+
+  if (parsed.action === 'resend') {
+    // No Authorization header on this one: resetPasswordForEmail is a
+    // public endpoint and has no business seeing the caller's token.
+    const anon = createClient(url, anonKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    })
+
+    const sent = await resendSignInLink(admin, caller, anon, parsed.userId, parsed.redirectTo)
+    if (typeof sent === 'string') return fail(sent, 400)
+
+    return reply({ userId: parsed.userId, ...sent }, 200)
+  }
+
+  if (parsed.role !== 'staff' && me.role !== 'owner') {
+    return fail('Only an Owner can invite somebody with a role above Staff.', 403)
+  }
 
   const outcome = await createInvitation(admin, parsed.email, parsed.redirectTo)
   if (typeof outcome === 'string') return fail(outcome, 400)

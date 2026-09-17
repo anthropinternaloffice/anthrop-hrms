@@ -32,6 +32,7 @@ import {
   listManagedDepartments,
   listPeopleWithoutAccounts,
   listUserAccounts,
+  resendSignInLink,
   setUserActive,
 } from '@/lib/users'
 import type { AppRole, ManagedDepartment, PersonOption, UserAccount } from '@/lib/types'
@@ -82,6 +83,7 @@ export function UsersAndRoles() {
   const [inviting, setInviting] = useState(false)
   const [changingRole, setChangingRole] = useState<UserAccount | null>(null)
   const [switchingOff, setSwitchingOff] = useState<UserAccount | null>(null)
+  const [resending, setResending] = useState<UserAccount | null>(null)
 
   const closeAndReload = useCallback(
     (changed: boolean) => {
@@ -128,6 +130,7 @@ export function UsersAndRoles() {
           canInvite={canInvite}
           onChangeRole={setChangingRole}
           onSwitchOff={setSwitchingOff}
+          onResend={setResending}
           onSwitchOn={async (user) => {
             await setUserActive(user.id, true)
             void reload()
@@ -144,6 +147,10 @@ export function UsersAndRoles() {
 
       {changingRole && (
         <ChangeRoleDialog user={changingRole} onClose={closeAndReload} />
+      )}
+
+      {resending && (
+        <ResendLinkDialog user={resending} onClose={() => setResending(null)} />
       )}
 
       {switchingOff && (
@@ -214,6 +221,7 @@ function UserList({
   onChangeRole,
   onSwitchOff,
   onSwitchOn,
+  onResend,
 }: {
   users: UserAccount[]
   currentUserId: string
@@ -222,6 +230,7 @@ function UserList({
   onChangeRole: (user: UserAccount) => void
   onSwitchOff: (user: UserAccount) => void
   onSwitchOn: (user: UserAccount) => void
+  onResend: (user: UserAccount) => void
 }) {
   return (
     <>
@@ -258,6 +267,7 @@ function UserList({
               onChangeRole={onChangeRole}
               onSwitchOff={onSwitchOff}
               onSwitchOn={onSwitchOn}
+              onResend={onResend}
               className="mt-4 flex flex-wrap gap-2"
             />
           </li>
@@ -300,6 +310,7 @@ function UserList({
                       onChangeRole={onChangeRole}
                       onSwitchOff={onSwitchOff}
                       onSwitchOn={onSwitchOn}
+                      onResend={onResend}
                       className="flex justify-end gap-2"
                     />
                   </TableCell>
@@ -330,6 +341,7 @@ function RowActions({
   onChangeRole,
   onSwitchOff,
   onSwitchOn,
+  onResend,
   className,
 }: {
   user: UserAccount
@@ -339,6 +351,7 @@ function RowActions({
   onChangeRole: (user: UserAccount) => void
   onSwitchOff: (user: UserAccount) => void
   onSwitchOn: (user: UserAccount) => void
+  onResend: (user: UserAccount) => void
   className: string
 }) {
   if (!canInvite) return null
@@ -353,6 +366,16 @@ function RowActions({
 
   return (
     <div className={className}>
+      {/* Offered for any account that is on, not only one showing as
+          Invited. Somebody who signed in six months ago and has
+          forgotten their password is the other half of this, and
+          telling them to use the forgotten-password screen only works
+          while they can still read their own email. */}
+      {user.isActive && user.email !== null && (
+        <Button variant="outline" size="sm" onClick={() => onResend(user)} className="h-10">
+          Send sign-in link
+        </Button>
+      )}
       {isOwner && (
         <Button variant="outline" size="sm" onClick={() => onChangeRole(user)} className="h-10">
           Change role
@@ -713,6 +736,113 @@ function ActionLink({ link }: { link: string }) {
         is done, links have to be passed on by hand.
       </p>
     </div>
+  )
+}
+
+/**
+ * Send somebody another link to set their password.
+ *
+ * Supabase's sign-in links are single use and they expire. Both are
+ * right, and between them they produce the everyday failure this
+ * dialog exists for: the link sat in a spam folder over a weekend, or a
+ * corporate mail scanner opened it on the way in and spent it before
+ * anybody read the message. The account is fine. The link is not.
+ *
+ * Confirmed rather than sent on one tap, because it is an email to a
+ * colleague and because the previous link stops working the moment this
+ * one is made — tapping it while somebody is mid-way through setting
+ * their password would strand them.
+ *
+ * The audit log records it before it is sent, and would refuse an
+ * account outside this organisation (migration 0009).
+ */
+function ResendLinkDialog({
+  user,
+  onClose,
+}: {
+  user: UserAccount
+  onClose: () => void
+}) {
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [sent, setSent] = useState<{ emailSent: boolean; actionLink: string | null } | null>(null)
+
+  async function handleSend() {
+    if (submitting) return
+    setSubmitting(true)
+    setError(null)
+
+    const result = await resendSignInLink(user.id)
+    setSubmitting(false)
+
+    if (result.error) {
+      setError(result.error)
+      return
+    }
+
+    setSent({ emailSent: result.emailSent, actionLink: result.actionLink })
+  }
+
+  if (sent) {
+    return (
+      <Dialog open onOpenChange={onClose}>
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{sent.emailSent ? 'Link sent' : 'Link created'}</DialogTitle>
+            <DialogDescription>
+              {sent.emailSent
+                ? `${user.email} will get an email with a fresh link to set a password. Any earlier link has stopped working.`
+                : 'The link was created, but the email could not be sent.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {sent.actionLink !== null && <ActionLink link={sent.actionLink} />}
+
+          <DialogFooter>
+            <Button onClick={onClose} className="h-11 text-base">
+              Done
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Send a new sign-in link?</DialogTitle>
+          <DialogDescription>
+            {describeUser(user)} will get an email at {user.email} with a link to set a
+            password. It can be used once and it expires. Sending this stops any earlier link
+            from working, and it is recorded in the audit log.
+          </DialogDescription>
+        </DialogHeader>
+
+        {error && (
+          <p role="alert" className="text-sm font-medium text-negative">
+            {error}
+          </p>
+        )}
+
+        <DialogFooter className="gap-2 sm:gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={submitting}
+            className="h-11 text-base"
+          >
+            Cancel
+          </Button>
+          <Button onClick={handleSend} disabled={submitting} className="h-11 text-base">
+            {submitting && <Loader2 className="size-4 animate-spin" aria-hidden="true" />}
+            {submitting ? 'Sending…' : 'Send link'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

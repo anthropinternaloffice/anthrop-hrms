@@ -26,14 +26,21 @@ export function ResetPassword() {
 
   // An expired or already-used link leaves no session behind. Say that
   // plainly instead of letting someone fill in a form that cannot work.
+  //
+  // "Or has already been used" is not padding. The commonest version of
+  // this is not a link that sat unopened for too long — it is a link a
+  // corporate mail scanner followed on the way into the inbox, spending
+  // it before anybody read the message. Somebody who knows that stops
+  // wondering whether they are doing something wrong and sends
+  // themselves another one.
   if (!initialising && !session) {
     return (
       <AuthLayout
         title="This link has expired"
-        description="Sign-in links can only be used once, and they do not last long. Request a new one and it will arrive in a moment."
+        description="Sign-in links can be used once, and they expire — and some email systems open links as they arrive, which uses them up. Send yourself another one; it is the same link and it works the same way."
       >
         <Button asChild className="h-11 w-full text-base">
-          <Link to="/forgot-password">Request a new link</Link>
+          <Link to="/forgot-password">Send me a new link</Link>
         </Button>
       </AuthLayout>
     )

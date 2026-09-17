@@ -41,6 +41,7 @@ These are database steps, not Cloudflare ones, and the site will look broken wit
 | Run `database/migrations/0006_deactivation.sql` | Supabase SQL editor | The roster flag, and `set_person_active()`. **Run this before deploying the code that uses it** — the employee list selects `people.is_active`, and asking for a column that does not exist fails the whole query |
 | Run `database/migrations/0007_attendance_export_audit.sql` | Supabase SQL editor | Adds `export` to `audit_action` and `log_attendance_export()`. **Run before deploying the code** — without it every export fails, by design: the audit entry is written first and no file is produced if it cannot be |
 | Run `database/migrations/0008_employee_import_audit.sql` | Supabase SQL editor | Adds `import` to `audit_action` and `log_employee_import()` — the one summary line a bulk import writes. The per-record entries come from the existing triggers |
+| Run `database/migrations/0009_sign_in_link_resend_audit.sql` | Supabase SQL editor | Adds `resend` to `audit_action` and `log_sign_in_link_sent()`. **Run before deploying the code** — the "Send sign-in link" button records the send before it makes it, so without this the button refuses rather than sending something unlogged |
 | Create the Owner's login | Supabase → Authentication → Users → Add user, **Auto Confirm** ticked | Nothing in the application can create the first administrator |
 | Run `database/seed/01_bootstrap_first_owner.sql` | Supabase SQL editor | Creates the organisation and makes that login its Owner |
 | Deploy the `invite-user` function | See below | Without it, nobody can be given an account from inside the application |
@@ -131,6 +132,46 @@ list as well while anyone is still developing locally.
 
 ---
 
+## How long a sign-in link lasts
+
+**Supabase → Authentication → Emails → Email OTP Expiration → `3600`** (seconds — one hour),
+then Save. That one field governs invitation links, password-reset links and email one-time
+codes together; there is no separate setting per kind of link.
+
+This is a project setting and lives in the dashboard, not in this repository. Nothing in the
+code can change it, and the screens deliberately do not quote a number at the user, because
+the number is whatever this field says and a page claiming "one hour" would be wrong the
+moment somebody changes it.
+
+**An hour is the ceiling on usefulness, not a fix on its own.** Two things end a link before
+it expires:
+
+- **A link can be used once.** The second click on the same link fails, however soon it
+  comes.
+- **Some email systems open links as they arrive.** Corporate scanners — Microsoft Safe
+  Links and the like — fetch every URL in a message to check it, and fetching a Supabase
+  link *uses it*. The recipient then opens a link that a machine spent before they ever saw
+  the email. This is the single commonest cause of "the link expired straight away", and no
+  expiry setting touches it.
+
+So the expiry buys time for the ordinary case — the email read the next morning — and the
+resend covers the rest:
+
+- **Anyone**, at `/forgot-password`: "Send me a sign-in link", and a "Send another link"
+  button on the confirmation screen once the wait is up. Works for somebody who never took
+  up their invitation as well as somebody who forgot a password; it is the same link.
+- **An Owner or HR**, on **Users and roles**: **Send sign-in link** on any account that is
+  switched on. Use this when somebody cannot get the email themselves, or is not sure which
+  address their account uses. It is written to the audit log first, and the send is refused
+  if it cannot be recorded.
+
+Supabase will not send a second link to the same address immediately — roughly a minute —
+and caps how many go out in an hour. The confirmation screen counts that minute down. Past
+the hourly cap the administrator's dialog shows the link on screen to pass on by hand, the
+same as an invitation that could not be emailed.
+
+---
+
 ## The `invite-user` Edge Function
 
 The one piece of this system that is not either a static file or a database. It exists
@@ -140,7 +181,13 @@ never reach a browser (rule 6). It lives inside the function instead. See D13 in
 
 **Nothing works on the Users and roles screen until this is deployed.** Everything else on it
 — the list, roles, switching accounts off — is ordinary database work and will function; only
-inviting somebody will fail.
+inviting somebody and sending a sign-in link will fail.
+
+**It has to be redeployed for the resend.** The function now answers two requests, an invite
+and a resend, and a project still running the older copy rejects "Send sign-in link" as a
+request it does not understand. Redeploying is the same step as deploying — paste or push the
+current file over the old one. Migration 0009 goes first: the function records the send
+before it makes it, and cannot call a function that is not there yet.
 
 ### Deploying it
 
@@ -186,6 +233,10 @@ Project Settings → Authentication → SMTP Settings, using Anthrop's own mail 
 the fix, and it is a five-minute job that nobody thinks about until an invitation goes
 missing.
 
+It is also what makes resending reliable. A resend is an email like any other, and on the
+shared service it competes for the same handful of messages an hour — so the one moment
+somebody needs a second link is exactly the moment the quota is most likely already spent.
+
 Until it is done, the application degrades honestly rather than silently: when the email
 cannot be sent, the account is still created and the invitation link is shown on screen for
 the administrator to pass on themselves. It is the same single-use, expiring link.
@@ -226,6 +277,12 @@ Nothing here needs a tool. It is the Definition of Done, walked through on a pho
       This is the `_redirects` check and it only fails once deployed.
 - [ ] **Request a password reset** and confirm the emailed link opens the deployed site. If
       it fails, the address is almost certainly missing from Supabase's redirect allowlist.
+- [ ] **Send yourself a second link** from the confirmation screen, and confirm the first
+      one no longer works — that is the behaviour to expect, not a fault
+- [ ] **Send a sign-in link to another account** from Users and roles, then find it in the
+      audit log as "Sent a sign-in link"
+- [ ] **Clock in and check the audit log says "Clocked in"** — not "Created attendance
+      record"
 - [ ] Add a department, a job title and an employee
 - [ ] Upload a document and download it back
 - [ ] Clock in, clock out, and see both in "My attendance"

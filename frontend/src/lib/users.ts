@@ -21,6 +21,9 @@ import type { AppRole, ManagedDepartment, PersonOption, UserAccount } from '@/li
  * Nothing here writes to the audit log either. Triggers do that (rule
  * 3), including for the invitation — which is why the Edge Function
  * inserts the profile row as the inviter rather than as service_role.
+ * The one event with no row behind it to trigger on is a resent sign-in
+ * link, and that is recorded by log_sign_in_link_sent() inside the same
+ * function, before the link goes out (migration 0009).
  */
 
 /* ------------------------------------------------------------------ */
@@ -213,17 +216,49 @@ export async function inviteUser(input: {
   role: AppRole
   personId: string | null
 }): Promise<InviteResult> {
+  return callInviteFunction({
+    action: 'invite',
+    email: input.email,
+    role: input.role,
+    personId: input.personId,
+  })
+}
+
+/**
+ * Send somebody who already has an account another sign-in link.
+ *
+ * The reason this exists: Supabase's links are single use and they
+ * expire, both correctly. Before this, a link that expired in a spam
+ * folder — or that a mail scanner opened and spent on the way in — meant
+ * the Supabase dashboard, which in practice meant the person who built
+ * the system.
+ *
+ * It names the account, not an address. The Edge Function reads the
+ * email from auth.users itself, so this call cannot redirect somebody
+ * else's sign-in link to an address of its own choosing.
+ *
+ * The audit entry is written by the function before the link goes out,
+ * as the caller, and a refusal there stops the send (migration 0009).
+ */
+export async function resendSignInLink(userId: string): Promise<InviteResult> {
+  return callInviteFunction({ action: 'resend', userId })
+}
+
+/**
+ * The one call in this application that does not go to PostgREST.
+ *
+ * Shared by both actions so there is one place that unwraps the Edge
+ * Function's replies — a failure arrives as a transport error with the
+ * real sentence inside the response body, and digging it out in two
+ * places is how the two start disagreeing.
+ */
+async function callInviteFunction(body: Record<string, unknown>): Promise<InviteResult> {
   const { data, error } = await supabase.functions.invoke<{
     emailSent?: boolean
     actionLink?: string | null
     error?: string
   }>('invite-user', {
-    body: {
-      email: input.email,
-      role: input.role,
-      personId: input.personId,
-      redirectTo: `${siteUrl()}/reset-password`,
-    },
+    body: { ...body, redirectTo: `${siteUrl()}/reset-password` },
   })
 
   // A non-2xx reply arrives as an error with the body attached, so the
@@ -231,12 +266,14 @@ export async function inviteUser(input: {
   // generic line rather than the transport error keeps a stack-shaped
   // message off the screen.
   if (error) {
-    let message = 'The invitation could not be sent. Try again in a moment.'
+    let message = 'That email could not be sent. Try again in a moment.'
     const response = (error as { context?: Response }).context
     if (response && typeof response.json === 'function') {
       try {
-        const body = (await response.json()) as { error?: string }
-        if (typeof body.error === 'string' && body.error.trim() !== '') message = body.error
+        const replyBody = (await response.json()) as { error?: string }
+        if (typeof replyBody.error === 'string' && replyBody.error.trim() !== '') {
+          message = replyBody.error
+        }
       } catch {
         // Keep the generic message. Nothing is logged: rule 7.
       }

@@ -811,6 +811,91 @@ started or ended, and the greeting says nothing about whether somebody is early 
 
 ---
 
+## D19 — A sign-in link can be sent again, and the log says who sent it
+
+**Date:** 2026-09-17
+
+Supabase's invitation and password-reset links are single use and they expire. Anthrop's
+report was that they expire "quickly". Three separate things were behind that, and only one
+of them is a setting:
+
+1. **The expiry itself.** `Email OTP Expiration` on the Supabase project, one field covering
+   invitations, resets and codes together. Raised to an hour. It lives in the dashboard, not
+   in this repository — see `docs/deployment.md`.
+2. **Single use.** A link that has been opened is spent. That is correct and is not being
+   changed.
+3. **Mail scanners.** A corporate filter that fetches every URL in a message to check it
+   *uses* the link on the way in, and the recipient opens one that a machine already spent.
+   No expiry setting touches this, and on the evidence it is the commonest case.
+
+Because of 2 and 3, a longer expiry alone would not have fixed the complaint. The answer had
+to be a way to get another link without the Supabase dashboard.
+
+### No number is quoted on any screen
+
+The expiry is a value in somebody else's dashboard. A screen saying "this link lasts one
+hour" is true until the day someone changes that field, and then it is a confident lie in the
+one place a confused person goes for help. The screens say the link expires and offer another
+one; `docs/deployment.md` carries the number, next to the field that sets it.
+
+Rule 4 is about invented data. This is the same instinct applied to configuration.
+
+### Two ways to ask, because there are two situations
+
+`/forgot-password` serves anyone, including somebody whose invitation expired before they
+opened it — it is the same link either way, which is why the screen stopped calling itself
+"reset your password". The confirmation screen can send another, with the roughly-a-minute
+wait counted down rather than tapped into an error.
+
+**Users and roles** serves the other case: the person cannot get the email at all, or does
+not know which address their account uses, and is asking a colleague for help. An Owner or HR
+sends it from there.
+
+### The administrator's resend names an account, not an address
+
+The browser sends a profile id. The Edge Function reads the email from `auth.users` itself.
+Had the address come from the browser, an HR user — or anything running in their session —
+could have a colleague's sign-in link delivered to an address of their choosing, and the
+audit entry would have looked entirely normal.
+
+### It is logged before it is sent, and refusing to log refuses the send
+
+`log_sign_in_link_sent()` in migration 0009, the same shape as `log_attendance_export()`
+(D17) and `log_employee_import()`. It is called with the caller's own client, so `auth.uid()`
+is the administrator rather than nobody.
+
+It is also the only thing enforcing rule 1 on this path. The send uses the `service_role`
+key, which no policy applies to, so "is this account even in your organisation?" has to be
+asked in the definer function — before the entry, and therefore before the email.
+
+The entry records that a link was *requested* for that account, which stays true whether or
+not the email then went out. The screen tells the administrator which happened.
+
+`/forgot-password` is not logged, and cannot be: there is no signed-in caller, no tenant to
+attribute it to, and the screen is reachable by a stranger typing in an address. Logging that
+would be recording guesses, not activity.
+
+### Sending is `resetPasswordForEmail`, not `generateLink`
+
+The admin API's `generateLink()` returns a link and sends nothing. The public
+`resetPasswordForEmail` is what actually puts an email in an inbox, so that is the first
+call, made with the anon key and no caller token attached. `generateLink()` is the fallback:
+when the email cannot go out, the link is handed to the administrator to pass on by hand,
+exactly as an invitation already does.
+
+A recovery link is right for both kinds of recipient. Somebody who never accepted their
+invitation has an unconfirmed address, and following a recovery link confirms it on the way
+through; an invite link cannot be generated twice for an account that already exists.
+
+### One function, two actions
+
+`invite-user` answers both rather than becoming two functions. They share every line of the
+authorisation and both need the `service_role` key; splitting them would mean two deployments
+and two places for the role checks to drift apart. The cost is that the function has to be
+redeployed for the resend to work, which is in the deployment document.
+
+---
+
 ## D20 — The audit log says what happened, not what the database did
 
 **Date:** 2026-09-17
